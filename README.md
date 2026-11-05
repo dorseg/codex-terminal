@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="app/assets/logo.png" alt="Codex Terminal logo" width="128" height="128">
+</p>
+
 # Codex Terminal
 
 A compact Debian Bookworm Slim-based container with Codex CLI, ttyd, tmux, Git, and Node.js. No desktop required. The browser UI is exposed on port 7681. The default browser terminal font is 24px.
