@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="app/assets/logo.png" alt="Codex Terminal logo" width="128" height="128">
+  <img src="docs/assets/social-preview.png" alt="Codex Terminal — Your browser. Your terminal." width="1280">
 </p>
 
 # Codex Terminal
