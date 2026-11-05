@@ -25,12 +25,11 @@ RUN npm install --global @openai/codex && npm cache clean --force
 ENV HOME=/home/node \
     TERM=xterm-256color
 
+COPY app /opt/codex-terminal
+
 USER node
 WORKDIR /workspace
 EXPOSE 7681
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["ttyd", "--writable", "--port", "7681", \
-     "--client-option", "fontSize=24", \
-     "--client-option", "lineHeight=1.2", \
-     "tmux", "new-session", "-A", "-s", "main"]
+CMD ["node", "/opt/codex-terminal/start.mjs"]
