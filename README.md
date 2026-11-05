@@ -115,7 +115,7 @@ Use the default container command for terminal login to work. HTTP is supported 
 - ttyd opens or reattaches the tmux session named `main`. Browser disconnects need not stop Codex, as long as the container runs.
 - Container restarts **do** terminate tmux and running Codex processes.
 - Code and Codex credentials survive container recreation because they reside in mapped volumes.
-- New images are published weekly and when changes land on `main`. They include updates to the base image, OS packages, and Codex CLI.
+- New images are published weekly and when app or build changes land on `main`. They include updates to the base image, OS packages, and Codex CLI.
 - To update, pull the latest image and recreate the container with the same settings and volume mappings. Published images do **not** automatically update your running container. Update when no Codex task is running.
 - Never mount the Docker socket or unrestricted host paths into this container, or run it in privileged mode.
 
@@ -132,4 +132,4 @@ docker build -t codex-terminal:test .
 
 To generate a password hash from a local checkout, run `node app/hash-password.mjs`.
 
-GitHub Actions runs the tests before building and publishing images tagged `latest` and with the commit SHA. Builds run on pushes to `main`, weekly, and on manual dispatch.
+GitHub Actions runs the tests before building and publishing images tagged `latest` and with the commit SHA. Builds run on pushes to `main` that change app code, tests, the Dockerfile, `.dockerignore`, or the build workflow, plus weekly and on manual dispatch. README and documentation image changes do not trigger builds.
