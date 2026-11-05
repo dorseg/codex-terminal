@@ -31,5 +31,6 @@ EXPOSE 7681
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["ttyd", "--writable", "--port", "7681", \
-     "--client-option", "fontSize=18", \
+     "--client-option", "fontSize=24", \
+     "--client-option", "lineHeight=1.2", \
      "tmux", "new-session", "-A", "-s", "main"]
