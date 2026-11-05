@@ -4,7 +4,7 @@ ARG TARGETARCH
 ARG TTYD_VERSION=1.7.7
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl git openssh-client ripgrep tmux tini \
+    ca-certificates curl git openssh-client procps ripgrep tmux tini \
     && rm -rf /var/lib/apt/lists/*
 
 # Download the upstream ttyd binary and verify its pinned SHA-256.
