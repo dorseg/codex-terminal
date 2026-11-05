@@ -121,10 +121,29 @@ test('terminal page keeps the app favicon after login, including on refresh', as
     assert.doesNotMatch(body, /base64,old/);
     assert.match(body, /Terminal ✓/);
     assert.match(body, /<title>Codex Terminal<\/title>/);
+    assert.match(body, /--terminal-height/);
+    assert.match(body, /window\.visualViewport/);
+    assert.match(body, /name="viewport" content="width=device-width, initial-scale=1"/);
     assert.equal(Number(page.headers.get('content-length')), Buffer.byteLength(body));
     assert.equal(page.headers.get('etag'), null);
     assert.equal(page.headers.get('cache-control'), 'no-store');
   }
+});
+
+test('without login, the same responsive page, token and WebSocket proxy are available', async t => {
+  const { request, port } = await setup(t, { username: undefined, passwordHash: undefined, upstreamHandler(req, res) {
+    if (req.url === '/token') return res.end('{"token":"example"}');
+    res.setHeader('Content-Type', 'text/html');
+    res.end('<html><head><title>ttyd</title></head><body><div id="terminal-container"></div></body></html>');
+  } });
+  const page = await request('/');
+  assert.equal(page.status, 200);
+  const body = await page.text();
+  assert.match(body, /window\.visualViewport/);
+  assert.match(body, /<title>Codex Terminal<\/title>/);
+  assert.equal(await (await request('/token')).text(), '{"token":"example"}');
+  assert.match(await upgrade(port), /101 Switching Protocols/);
+  assert.match(await upgrade(port, '', 'https://evil.example'), /401 Unauthorized/);
 });
 
 test('forged, expired and previous-process sessions are rejected', async t => {
@@ -182,7 +201,13 @@ console.log(JSON.stringify({args:process.argv.slice(2),user:process.env.AUTH_USE
 process.on('SIGTERM',()=>{console.log('stopped');process.exit(0)});
 setInterval(()=>{},1000);
 `, { mode: 0o755 });
-  const child = spawn(process.execPath, [resolve('app/start.mjs')], { env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, AUTH_USERNAME: '', AUTH_PASSWORD_HASH: '' } });
+  // Isolate the launcher test from a terminal already running on port 7681.
+  const preload = join(dir, 'ephemeral-port.mjs');
+  await writeFile(preload, `import { Server } from 'node:http';
+const listen = Server.prototype.listen;
+Server.prototype.listen = function(port, ...args) { return listen.call(this, port === 7681 ? 0 : port, ...args); };
+`);
+  const child = spawn(process.execPath, ['--import', preload, resolve('app/start.mjs')], { env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, AUTH_USERNAME: '', AUTH_PASSWORD_HASH: '' } });
   t.after(() => child.kill('SIGKILL'));
   let output = '';
   await new Promise((resolve, reject) => {
@@ -192,7 +217,7 @@ setInterval(()=>{},1000);
   const info = JSON.parse(output.trim());
   assert.equal(info.user, undefined);
   assert.equal(info.passwordHash, undefined);
-  assert.deepEqual(info.args, ['--writable', '--port', '7681', '--client-option', 'fontSize=24', '--client-option', 'lineHeight=1.2', '--client-option', 'titleFixed=Codex Terminal', 'tmux', 'new-session', '-A', '-s', 'main']);
+  assert.deepEqual(info.args, ['--writable', '--port', '7682', '--interface', '127.0.0.1', '--client-option', 'lineHeight=1.2', '--client-option', 'titleFixed=Codex Terminal', 'tmux', 'new-session', '-A', '-s', 'main']);
   const exited = new Promise(resolve => child.on('exit', (code, signal) => resolve({ code, signal })));
   child.kill('SIGTERM');
   assert.deepEqual(await exited, { code: 0, signal: null });
