@@ -2,6 +2,7 @@ import http from 'node:http';
 import { readFileSync } from 'node:fs';
 import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
 import { parsePasswordHash, verifyPassword } from './password.mjs';
+import { terminalPage as customizeTerminalPage } from './terminal.mjs';
 
 const SESSION_MS = 8 * 60 * 60 * 1000;
 const COOKIE = 'codex_terminal_session';
@@ -35,14 +36,16 @@ button{margin-top:24px;background:#b8e7ce;color:#10251b;font-weight:600;cursor:p
 <button type="submit">Sign in</button></form></main></html>`;
 }
 
-export function createAuthServer({ username, passwordHash, upstreamPort = 7682, now = Date.now, sessionMs = SESSION_MS }) {
+export function createAuthServer({ username, passwordHash, upstreamPort = 7682, now = Date.now, sessionMs = SESSION_MS } = {}) {
+  const requireAuth = Boolean(username);
   const sessions = new Map();
   const failures = new Map();
-  const expectedUser = digest(username);
-  const expectedPassword = parsePasswordHash(passwordHash);
+  const expectedUser = requireAuth ? digest(username) : null;
+  const expectedPassword = requireAuth ? parsePasswordHash(passwordHash) : null;
   let activeVerifications = 0;
   const sockets = new Set();
   function authenticated(req) {
+    if (!requireAuth) return true;
     const token = (req.headers.cookie || '').split(';').map(s => s.trim()).find(s => s.startsWith(`${COOKIE}=`))?.slice(COOKIE.length + 1);
     const expires = sessions.get(token);
     if (!expires) return false;
@@ -65,7 +68,7 @@ export function createAuthServer({ username, passwordHash, upstreamPort = 7682, 
       if (req.method !== 'GET' && req.method !== 'HEAD') return reply(res, 405, '', { Allow: 'GET, HEAD' });
       return reply(res, 200, req.method === 'HEAD' ? '' : logo, { 'Content-Type': 'image/png', 'Content-Length': logo.length });
     }
-    if (req.url === '/login') {
+    if (requireAuth && req.url === '/login') {
       if (req.method === 'GET') {
         return authenticated(req) ? reply(res, 303, '', { Location: '/' }) : reply(res, 200, loginPage());
       }
@@ -112,7 +115,7 @@ export function createAuthServer({ username, passwordHash, upstreamPort = 7682, 
     const terminalPage = req.method === 'GET' && req.url.split('?')[0] === '/';
     const headers = { ...req.headers };
     if (terminalPage) {
-      // The embedded ttyd page must be plain HTML to replace its bundled icon.
+      // Customize the embedded ttyd HTML in both authentication modes.
       headers['accept-encoding'] = 'identity';
       delete headers['if-none-match'];
       delete headers['if-modified-since'];
@@ -123,10 +126,7 @@ export function createAuthServer({ username, passwordHash, upstreamPort = 7682, 
         response.on('data', chunk => chunks.push(chunk));
         response.on('error', () => res.destroy());
         response.on('end', () => {
-          const html = Buffer.concat(chunks).toString('utf8').replace(
-            /<link\b(?=[^>]*\brel=["'](?:shortcut )?icon["'])[^>]*>/gi,
-            '<link rel="icon" type="image/png" href="/assets/logo.png">')
-            .replace(/<title>[^<]*<\/title>/i, '<title>Codex Terminal</title>');
+          const html = customizeTerminalPage(Buffer.concat(chunks).toString('utf8'));
           const body = Buffer.from(html);
           const headers = { ...response.headers, 'cache-control': 'no-store', 'content-length': body.length };
           delete headers['transfer-encoding'];
