@@ -2,11 +2,7 @@
 
 A compact Debian Bookworm Slim-based container with Codex CLI, ttyd, tmux, Git, and Node.js. No desktop required. The browser UI is exposed on port 7681. The default browser terminal font is 24px.
 
-The image uses `node:24-bookworm-slim` for broad compatibility. ttyd 1.7.7 is downloaded from the upstream release and SHA-256 verified.
-
-## Automated image builds
-
-GitHub Actions builds and publishes `ghcr.io/dorseg/codex-terminal:latest` and a commit-specific tag on pushes to `main`, Sundays at 03:23 UTC, and on manual dispatch.
+The Docker image is available at `ghcr.io/dorseg/codex-terminal:latest`.
 
 ## Docker installation
 
@@ -86,8 +82,6 @@ docker run --rm -it ghcr.io/dorseg/codex-terminal:latest \
   node /opt/codex-terminal/hash-password.mjs
 ```
 
-For a local checkout, run `node app/hash-password.mjs` instead.
-
 For Docker CLI, add both variables when creating the container. Run this from the directory containing your `config` and `projects` directories:
 
 ```sh
@@ -103,24 +97,13 @@ Open the app, enter the credentials on the login page, and the terminal appears.
 
 Enter your original password on the login page. The example hash above is a placeholder; replace it with the entire generated value. Keep the single quotes in shell commands so `$` characters are preserved. In a Compose YAML value, escape each `$` as `$$` to prevent interpolation.
 
-Hashes contain the random salt and fixed scrypt cost settings (`N=32768`, `r=8`, `p=3`). Verification uses approximately 32 MiB per attempt, with at most two simultaneous verifications. No additional packages are required. Hashes remain sensitive: someone who obtains one can attempt offline password guessing. HTTPS is still needed to protect login traffic outside a trusted network.
+Keep password hashes private. HTTPS is still needed to protect login traffic outside a trusted network.
 
 `AUTH_PASSWORD` is no longer supported and causes a startup error when nonempty. To migrate, generate a hash, remove `AUTH_PASSWORD`, and set `AUTH_PASSWORD_HASH`. To change your password, generate a new hash and recreate the container; this also invalidates existing sessions.
 
 If both variables are unset or empty, the app opens directly to the terminal. Setting only one nonempty variable prevents startup with a configuration error. Credential values are matched exactly. Five failed attempts from one address block further attempts for one minute; users behind the same reverse proxy share this limit.
 
-When login is enabled, only the proxy listens publicly on port 7681; ttyd listens internally on `127.0.0.1:7682`. Use the default container command to enable this flow. HTTP is supported on trusted local networks; for remote access, keep the HTTPS and Cloudflare Access setup described above. The login cookie is HTTP-only and restricted to same-site requests.
-
-## Development checks
-
-Run authentication and launcher tests with Node.js 24:
-
-```sh
-node --test test/*.test.mjs
-docker build -t codex-terminal:test .
-```
-
-The image publication workflow runs these tests before building and publishing.
+Use the default container command for terminal login to work. HTTP is supported on trusted local networks; for remote access, follow the [remote access guidance](#remote-access).
 
 ## Persistence and updates
 
@@ -128,6 +111,21 @@ The image publication workflow runs these tests before building and publishing.
 - ttyd opens or reattaches the tmux session named `main`. Browser disconnects need not stop Codex, as long as the container runs.
 - Container restarts **do** terminate tmux and running Codex processes.
 - Code and Codex credentials survive container recreation because they reside in mapped volumes.
-- Weekly builds update base image, OS packages and Codex CLI. The pinned ttyd binary stays at version 1.7.7 until updated in Dockerfile.
-- GitHub Actions publishes images; it does **not** automatically deploy or restart your container. Update when no Codex task is running.
+- New images are published weekly and when changes land on `main`. They include updates to the base image, OS packages, and Codex CLI.
+- To update, pull the latest image and recreate the container with the same settings and volume mappings. Published images do **not** automatically update your running container. Update when no Codex task is running.
 - Never mount the Docker socket or unrestricted host paths into this container, or run it in privileged mode.
+
+## Development
+
+The image uses `node:24-bookworm-slim`. ttyd is pinned to version 1.7.7 in the Dockerfile and its download is SHA-256 verified.
+
+Run authentication and launcher tests with Node.js 24, then build the image:
+
+```sh
+node --test test/*.test.mjs
+docker build -t codex-terminal:test .
+```
+
+To generate a password hash from a local checkout, run `node app/hash-password.mjs`.
+
+GitHub Actions runs the tests before building and publishing images tagged `latest` and with the commit SHA. Builds run on pushes to `main`, weekly, and on manual dispatch.
