@@ -1,9 +1,11 @@
 import http from 'node:http';
+import { readFileSync } from 'node:fs';
 import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
 import { parsePasswordHash, verifyPassword } from './password.mjs';
 
 const SESSION_MS = 8 * 60 * 60 * 1000;
 const COOKIE = 'codex_terminal_session';
+const logo = readFileSync(new URL('./assets/logo.png', import.meta.url));
 const digest = value => createHash('sha256').update(value).digest();
 
 export function credentials(env = process.env) {
@@ -20,12 +22,14 @@ export function credentials(env = process.env) {
 function loginPage(error = '') {
   return `<!doctype html><html lang="en"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sign in · Codex Terminal</title><style>
+<link rel="icon" type="image/png" href="/assets/logo.png">
+<title>Codex Terminal</title><style>
 *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#14171c;color:#edf0f5;font:16px system-ui;padding:24px}
 main{width:100%;max-width:380px;padding:32px;background:#20252d;border:1px solid #38404d;border-radius:16px}h1{font-size:24px;margin:0 0 24px}
+.logo{display:block;width:88px;height:88px;object-fit:contain;margin:0 0 16px}
 label{display:block;margin:16px 0 8px}input,button{width:100%;font:inherit;padding:12px;border-radius:8px;border:1px solid #566172}input{background:#14171c;color:inherit}
 button{margin-top:24px;background:#b8e7ce;color:#10251b;font-weight:600;cursor:pointer}.error{color:#ffb5b5}input:focus-visible,button:focus-visible{outline:3px solid #b8e7ce;outline-offset:3px}
-</style><main><h1>Codex Terminal</h1>${error ? `<p class="error" role="alert">${error}</p>` : ''}
+</style><main><img class="logo" src="/assets/logo.png" alt="" width="88" height="88"><h1>Codex Terminal</h1>${error ? `<p class="error" role="alert">${error}</p>` : ''}
 <form action="/login" method="post"><label for="username">Username</label><input id="username" name="username" autocomplete="username" required autofocus>
 <label for="password">Password</label><input id="password" type="password" name="password" autocomplete="current-password" required>
 <button type="submit">Sign in</button></form></main></html>`;
@@ -52,11 +56,15 @@ export function createAuthServer({ username, passwordHash, upstreamPort = 7682, 
   }
   function reply(res, status, body = '', headers = {}) {
     res.writeHead(status, { 'Cache-Control': 'no-store', 'Content-Type': 'text/html; charset=utf-8',
-      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'",
+      'Content-Security-Policy': "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'",
       'X-Content-Type-Options': 'nosniff', ...headers });
     res.end(body);
   }
   const server = http.createServer(async (req, res) => {
+    if (req.url === '/assets/logo.png') {
+      if (req.method !== 'GET' && req.method !== 'HEAD') return reply(res, 405, '', { Allow: 'GET, HEAD' });
+      return reply(res, 200, req.method === 'HEAD' ? '' : logo, { 'Content-Type': 'image/png', 'Content-Length': logo.length });
+    }
     if (req.url === '/login') {
       if (req.method === 'GET') {
         return authenticated(req) ? reply(res, 303, '', { Location: '/' }) : reply(res, 200, loginPage());
@@ -101,7 +109,34 @@ export function createAuthServer({ username, passwordHash, upstreamPort = 7682, 
       return reply(res, 303, '', { Location: '/', 'Set-Cookie': `${COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/` });
     }
     if (!authenticated(req)) return reply(res, 303, '', { Location: '/login' });
-    const upstream = http.request({ hostname: '127.0.0.1', port: upstreamPort, path: req.url, method: req.method, headers: req.headers }, response => {
+    const terminalPage = req.method === 'GET' && req.url.split('?')[0] === '/';
+    const headers = { ...req.headers };
+    if (terminalPage) {
+      // The embedded ttyd page must be plain HTML to replace its bundled icon.
+      headers['accept-encoding'] = 'identity';
+      delete headers['if-none-match'];
+      delete headers['if-modified-since'];
+    }
+    const upstream = http.request({ hostname: '127.0.0.1', port: upstreamPort, path: req.url, method: req.method, headers }, response => {
+      if (terminalPage && response.statusCode === 200 && response.headers['content-type']?.startsWith('text/html')) {
+        const chunks = [];
+        response.on('data', chunk => chunks.push(chunk));
+        response.on('error', () => res.destroy());
+        response.on('end', () => {
+          const html = Buffer.concat(chunks).toString('utf8').replace(
+            /<link\b(?=[^>]*\brel=["'](?:shortcut )?icon["'])[^>]*>/gi,
+            '<link rel="icon" type="image/png" href="/assets/logo.png">')
+            .replace(/<title>[^<]*<\/title>/i, '<title>Codex Terminal</title>');
+          const body = Buffer.from(html);
+          const headers = { ...response.headers, 'cache-control': 'no-store', 'content-length': body.length };
+          delete headers['transfer-encoding'];
+          delete headers.etag;
+          delete headers['last-modified'];
+          res.writeHead(response.statusCode, headers);
+          res.end(body);
+        });
+        return;
+      }
       res.writeHead(response.statusCode, { ...response.headers, 'cache-control': 'no-store' });
       response.pipe(res);
       response.on('error', () => res.destroy());

@@ -14,7 +14,7 @@ const passwordHash = await hashPassword('a: secret & + pass');
 const listen = server => new Promise(resolve => server.listen(0, '127.0.0.1', () => resolve(server.address().port)));
 
 async function setup(t, options = {}) {
-  const upstream = http.createServer((req, res) => { res.end(`terminal:${req.url}`); });
+  const upstream = http.createServer(options.upstreamHandler || ((req, res) => { res.end(`terminal:${req.url}`); }));
   upstream.on('upgrade', (req, socket, head) => {
     socket.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Protocol: tty\r\n\r\n');
     if (head.length) socket.write(head);
@@ -86,6 +86,47 @@ test('login grants HTTP and bidirectional WebSocket access; refresh reuses sessi
   assert.match(await upgrade(port, headers.cookie, 'https://evil.example'), /401 Unauthorized/);
 });
 
+test('login logo is available before authentication with image content and a compatible CSP', async t => {
+  const { request } = await setup(t);
+  const page = await request('/login');
+  assert.match(await page.text(), /<img[^>]+src="\/assets\/logo\.png"/);
+  assert.match(page.headers.get('content-security-policy'), /img-src 'self'/);
+  const image = await request('/assets/logo.png');
+  assert.equal(image.status, 200);
+  assert.equal(image.headers.get('content-type'), 'image/png');
+  const bytes = Buffer.from(await image.arrayBuffer());
+  assert.deepEqual(bytes.subarray(0, 8), Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  assert.equal(Number(image.headers.get('content-length')), bytes.length);
+  const head = await request('/assets/logo.png', { method: 'HEAD' });
+  assert.equal(head.status, 200);
+  assert.equal((await head.arrayBuffer()).byteLength, 0);
+  assert.equal((await request('/assets/logo.png', { method: 'POST' })).status, 405);
+  assert.equal((await request('/assets/other.png')).status, 303);
+});
+
+test('terminal page keeps the app favicon after login, including on refresh', async t => {
+  const html = '<html><head><title>ttyd - Terminal</title><link rel="icon" type="image/png" href="data:image/png;base64,old"></head><body>Terminal ✓</body></html>';
+  const { request, login } = await setup(t, { upstreamHandler(req, res) {
+    assert.equal(req.headers['accept-encoding'], 'identity');
+    assert.equal(req.headers['if-none-match'], undefined);
+    res.writeHead(200, { 'Content-Type': 'text/html', 'Content-Length': Buffer.byteLength(html), ETag: 'old' });
+    res.end(html);
+  } });
+  const cookie = (await login()).headers.get('set-cookie').split(';')[0];
+  for (const path of ['/', '/?arg=example']) {
+    const page = await request(path, { headers: { cookie, 'accept-encoding': 'gzip', 'if-none-match': 'old' } });
+    const body = await page.text();
+    assert.equal(page.status, 200);
+    assert.match(body, /rel="icon" type="image\/png" href="\/assets\/logo.png"/);
+    assert.doesNotMatch(body, /base64,old/);
+    assert.match(body, /Terminal ✓/);
+    assert.match(body, /<title>Codex Terminal<\/title>/);
+    assert.equal(Number(page.headers.get('content-length')), Buffer.byteLength(body));
+    assert.equal(page.headers.get('etag'), null);
+    assert.equal(page.headers.get('cache-control'), 'no-store');
+  }
+});
+
 test('forged, expired and previous-process sessions are rejected', async t => {
   let time = 1000;
   const { request, login, port } = await setup(t, { now: () => time, sessionMs: 100 });
@@ -151,7 +192,7 @@ setInterval(()=>{},1000);
   const info = JSON.parse(output.trim());
   assert.equal(info.user, undefined);
   assert.equal(info.passwordHash, undefined);
-  assert.deepEqual(info.args, ['--writable', '--port', '7681', '--client-option', 'fontSize=24', '--client-option', 'lineHeight=1.2', 'tmux', 'new-session', '-A', '-s', 'main']);
+  assert.deepEqual(info.args, ['--writable', '--port', '7681', '--client-option', 'fontSize=24', '--client-option', 'lineHeight=1.2', '--client-option', 'titleFixed=Codex Terminal', 'tmux', 'new-session', '-A', '-s', 'main']);
   const exited = new Promise(resolve => child.on('exit', (code, signal) => resolve({ code, signal })));
   child.kill('SIGTERM');
   assert.deepEqual(await exited, { code: 0, signal: null });

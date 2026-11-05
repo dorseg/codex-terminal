@@ -6,6 +6,7 @@ try { auth = credentials(); } catch (error) { console.error(error.message); proc
 const args = ['--writable', '--port', auth ? '7682' : '7681',
   ...(auth ? ['--interface', '127.0.0.1'] : []),
   '--client-option', 'fontSize=24', '--client-option', 'lineHeight=1.2',
+  '--client-option', 'titleFixed=Codex Terminal',
   'tmux', 'new-session', '-A', '-s', 'main'];
 const childEnv = { ...process.env };
 delete childEnv.AUTH_USERNAME;
