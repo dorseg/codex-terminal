@@ -1,4 +1,4 @@
-# Codex Terminal for Unraid
+# Codex Terminal
 
 A compact Debian Bookworm Slim-based container with Codex CLI, ttyd, tmux, Git, and Node.js. No desktop required. The browser UI is exposed on port 7681. The default browser terminal font is 24px.
 
@@ -8,7 +8,38 @@ The image uses `node:24-bookworm-slim` for broad compatibility. ttyd 1.7.7 is do
 
 GitHub Actions builds and publishes `ghcr.io/dorseg/codex-terminal:latest` and a commit-specific tag on pushes to `main`, Sundays at 03:23 UTC, and on manual dispatch.
 
-**Note:** Set the GHCR package visibility to **Public** in GitHub package settings if you want anonymous pulls from Unraid. The public repository's visibility does not automatically make the image public.
+**Note:** Set the GHCR package visibility to **Public** in GitHub package settings if you want anonymous image pulls. The public repository's visibility does not automatically make the image public.
+
+## Docker installation
+
+1. On your Docker host, prepare persistent directories that the container's user (UID 1000) can write to:
+
+   ```sh
+   mkdir -p ./config ./projects
+   sudo chown -R 1000:1000 ./config ./projects
+   ```
+
+2. Start the container from the same directory:
+
+   ```sh
+   docker run -d --name codex-terminal \
+     -p 7681:7681 \
+     -v "$(pwd)/projects:/workspace" \
+     -v "$(pwd)/config:/home/node/.codex" \
+     ghcr.io/dorseg/codex-terminal:latest
+   ```
+
+3. Open `http://DOCKER_HOST_IP:7681` on a **trusted local network** (or `http://localhost:7681` on the Docker host). To sign into Codex, run this in the browser terminal:
+
+   ```sh
+   codex login --device-auth
+   ```
+
+The terminal opens without a browser login by default. See [Optional terminal login](#optional-terminal-login) to require credentials.
+
+## Remote access
+
+For remote access, **configure Cloudflare Access** with an identity restriction and MFA **before** publishing a Cloudflare Tunnel route to `http://DOCKER_HOST_IP:7681`. Never forward the raw port on your router. Cloudflare Access does not protect the local published port, so restrict local access with firewall/network rules as appropriate.
 
 ## Unraid installation
 
@@ -31,13 +62,15 @@ GitHub Actions builds and publishes `ghcr.io/dorseg/codex-terminal:latest` and a
    | Codex config path | `/mnt/user/appdata/codex-terminal/config` → `/home/node/.codex` (RW) |
    | Web UI (optional) | `http://[IP]:[PORT:7681]/` |
 
+   To enable [optional terminal login](#optional-terminal-login), add `AUTH_USERNAME` and `AUTH_PASSWORD_HASH` as two **Variable** entries in the container settings. Paste the complete generated hash literally into `AUTH_PASSWORD_HASH`.
+
 3. Open `http://UNRAID_IP:7681` on a **trusted local network**. To sign into Codex:
 
    ```sh
    codex login --device-auth
    ```
 
-4. For remote access, **configure Cloudflare Access** with an identity restriction and MFA **before** publishing a Cloudflare Tunnel route to `http://UNRAID_IP:7681`. Never forward the raw port on your router. Cloudflare Access does not protect the local published port, so restrict local access with firewall/network rules as appropriate.
+4. For access outside your local network, follow the [remote access guidance](#remote-access) using your Unraid host's IP address.
 
 ## Optional terminal login
 
@@ -57,14 +90,14 @@ docker run --rm -it ghcr.io/dorseg/codex-terminal:latest \
 
 For a local checkout, run `node app/hash-password.mjs` instead.
 
-In Unraid, add these as two **Variable** entries in the container settings. Paste the complete hash literally into `AUTH_PASSWORD_HASH`. For Docker CLI:
+For Docker CLI, add both variables when creating the container. Run this from the directory containing your `config` and `projects` directories:
 
 ```sh
 docker run -d --name codex-terminal -p 7681:7681 \
   -e AUTH_USERNAME='your-user' \
   -e AUTH_PASSWORD_HASH='scrypt$32768$8$3$PASTE_YOUR_SALT$PASTE_YOUR_HASH' \
-  -v /mnt/user/appdata/codex-terminal/projects:/workspace \
-  -v /mnt/user/appdata/codex-terminal/config:/home/node/.codex \
+  -v "$(pwd)/projects:/workspace" \
+  -v "$(pwd)/config:/home/node/.codex" \
   ghcr.io/dorseg/codex-terminal:latest
 ```
 
@@ -98,5 +131,5 @@ The image publication workflow runs these tests before building and publishing.
 - Container restarts **do** terminate tmux and running Codex processes.
 - Code and Codex credentials survive container recreation because they reside in mapped volumes.
 - Weekly builds update base image, OS packages and Codex CLI. The pinned ttyd binary stays at version 1.7.7 until updated in Dockerfile.
-- GitHub Actions publishes images; it does **not** automatically deploy or restart your Unraid container. Update when no Codex task is running.
-- Never mount the Unraid Docker socket, privileged mode, or unrestricted host paths into this container.
+- GitHub Actions publishes images; it does **not** automatically deploy or restart your container. Update when no Codex task is running.
+- Never mount the Docker socket or unrestricted host paths into this container, or run it in privileged mode.
