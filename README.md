@@ -8,8 +8,6 @@ The image uses `node:24-bookworm-slim` for broad compatibility. ttyd 1.7.7 is do
 
 GitHub Actions builds and publishes `ghcr.io/dorseg/codex-terminal:latest` and a commit-specific tag on pushes to `main`, Sundays at 03:23 UTC, and on manual dispatch.
 
-**Note:** Set the GHCR package visibility to **Public** in GitHub package settings if you want anonymous image pulls. The public repository's visibility does not automatically make the image public.
-
 ## Docker installation
 
 1. On your Docker host, prepare persistent directories that the container's user (UID 1000) can write to:
