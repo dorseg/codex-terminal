@@ -8,6 +8,12 @@ A compact Debian Bookworm Slim-based container with Codex CLI, ttyd, tmux, Git, 
 
 The Docker image is available at `ghcr.io/dorseg/codex-terminal:latest`.
 
+## Mobile terminal shortcut bar
+
+On touch devices narrower than 768px, the terminal displays a horizontally scrollable shortcut bar above the mobile keyboard. It provides **Esc**, **Tab**, **Shift+Tab**, **Ctrl+C**, arrow keys, and **Enter**. The terminal is resized to reserve space for the bar, including when Android's on-screen keyboard opens.
+
+The toolbar is hidden on desktop. Its keys are sent to ttyd's existing xterm.js input handler; it does not require SSH, a separate proxy, or extra packages. Touching toolbar keys is intended to retain terminal focus. If Android browser keyboard handling differs, report the browser and device model.
+
 ## Docker installation
 
 1. On your Docker host, prepare persistent directories that the container's user (UID 1000) can write to:
