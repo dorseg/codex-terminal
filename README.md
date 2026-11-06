@@ -70,6 +70,62 @@ For remote access, **configure Cloudflare Access** with an identity restriction 
 
 4. For access outside your local network, follow the [remote access guidance](#remote-access) using your Unraid host's IP address.
 
+## Web apps on the same URL
+
+Run web apps inside the container and access them through the terminal's existing port or domain:
+
+| Service | URL |
+| --- | --- |
+| Terminal | `http://DOCKER_HOST_IP:7681/` |
+| App on port 3000 | `http://DOCKER_HOST_IP:7681/apps/3000/` |
+| App on port 5173 | `http://DOCKER_HOST_IP:7681/apps/5173/` |
+
+Add `APP_PORTS` when creating the container, keeping your existing volumes and optional login settings:
+
+```sh
+docker run -d --name codex-terminal \
+  -p 7681:7681 \
+  -e APP_PORTS='3000,5173' \
+  -v "$(pwd)/projects:/workspace" \
+  -v "$(pwd)/config:/home/node/.codex" \
+  ghcr.io/dorseg/codex-terminal:latest
+```
+
+On Unraid, add a **Variable** named `APP_PORTS` with value `3000,5173`. No additional port mappings or tunnel routes are needed. For a tunnel domain, open `https://your-domain/apps/5173/`.
+
+`APP_PORTS` is disabled when unset or empty. It accepts comma-separated ports from 1024 to 65535, excluding internal ports 7681 and 7682. Spaces and duplicates are accepted; invalid entries prevent startup. Recreate the container to change the allowlist. Start and stop apps yourself in the terminal; an allowed port does not need a running app at container startup. An unavailable app returns a gateway error while the terminal remains usable.
+
+Apps may bind to `127.0.0.1` inside the container. Each app must serve its full `/apps/<port>/` prefix: the proxy preserves the path and query without rewriting HTML, assets, redirects, or cookies. Configure client routes, API URLs, WebSocket paths, redirects, and cookie paths for that prefix. For example, `/api` points outside the app; use `/apps/5173/api` or a base-aware relative URL instead. App cookies should use `Path=/apps/5173/`.
+
+### Automatic Codex instructions
+
+At startup, the container adds a managed web app section to the global `AGENTS.md` in `CODEX_HOME` (default `/home/node/.codex`). It lists the configured `APP_PORTS` and explains the proxy prefix, app configuration, live reload, and keeping servers running in tmux. You can ask Codex to “build and run a task tracker” without repeating the port and proxy setup.
+
+Existing personal instructions are preserved. If a nonempty global `AGENTS.override.md` exists, the managed section is placed there instead so Codex loads it. The section refreshes on container startup, including when proxying is disabled. The Codex config directory must be writable. Start a new Codex session to load updated instructions; project instructions can override these defaults. See the [official instruction discovery guide](https://developers.openai.com/codex/guides/agents-md).
+
+### Vite example
+
+In a Vite project's `vite.config.js`:
+
+```js
+import { defineConfig } from 'vite';
+
+export default defineConfig({
+  base: '/apps/5173/',
+  server: {
+    host: '127.0.0.1',
+    port: 5173,
+    strictPort: true,
+    // Replace with your public hostname when using a domain.
+    allowedHosts: ['your-domain.example'],
+  },
+});
+```
+
+Start the project with `npm run dev`, then open `/apps/5173/` on the terminal's external URL. IP addresses and localhost are allowed by Vite by default. Vite's default live reload connects through the page's origin and base path; WebSocket upgrades are forwarded to the same app port. Remove conflicting custom live reload host/port settings that would direct the browser to the container's private address. See Vite's [base option](https://vite.dev/config/shared-options#base) and [server options](https://vite.dev/config/server-options) for your installed version.
+
+When terminal login is enabled, app routes share the login and return to the requested app after sign-in. Without terminal login, allowlisted apps are accessible directly. Only run trusted apps: they share the terminal's browser origin and session privileges. The proxy strips the terminal session cookie from upstream requests and filters attempts to set that reserved cookie, but this does not isolate apps from the terminal. Follow the existing remote access guidance when using a public domain.
+
 ## Optional terminal login
 
 Set both environment variables to require a browser login before accessing the terminal:

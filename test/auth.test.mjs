@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import net from 'node:net';
 import { spawn } from 'node:child_process';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { credentials, createAuthServer } from '../app/auth.mjs';
@@ -207,7 +207,7 @@ setInterval(()=>{},1000);
 const listen = Server.prototype.listen;
 Server.prototype.listen = function(port, ...args) { return listen.call(this, port === 7681 ? 0 : port, ...args); };
 `);
-  const child = spawn(process.execPath, ['--import', preload, resolve('app/start.mjs')], { env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, AUTH_USERNAME: '', AUTH_PASSWORD_HASH: '' } });
+  const child = spawn(process.execPath, ['--import', preload, resolve('app/start.mjs')], { env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, CODEX_HOME: join(dir, 'codex-home'), AUTH_USERNAME: '', AUTH_PASSWORD_HASH: '' } });
   t.after(() => child.kill('SIGKILL'));
   let output = '';
   await new Promise((resolve, reject) => {
@@ -215,6 +215,7 @@ Server.prototype.listen = function(port, ...args) { return listen.call(this, por
     child.stdout.on('data', data => { output += data; if (output.includes('\n')) resolve(); });
   });
   const info = JSON.parse(output.trim());
+  assert.match(await readFile(join(dir, 'codex-home', 'AGENTS.md'), 'utf8'), /Codex Terminal web app environment/);
   assert.equal(info.user, undefined);
   assert.equal(info.passwordHash, undefined);
   assert.deepEqual(info.args, ['--writable', '--port', '7682', '--interface', '127.0.0.1', '--client-option', 'lineHeight=1.2', '--client-option', 'titleFixed=Codex Terminal', 'tmux', 'new-session', '-A', '-s', 'main']);
@@ -231,4 +232,15 @@ test('launcher fails early for incomplete credentials', async () => {
   const code = await new Promise(resolve => child.on('exit', resolve));
   assert.equal(code, 1);
   assert.match(stderr, /Set both AUTH_USERNAME and AUTH_PASSWORD_HASH/);
+});
+
+
+test('launcher rejects invalid APP_PORTS before starting ttyd', async () => {
+  const child = spawn(process.execPath, [resolve('app/start.mjs')], { env: { ...process.env, AUTH_USERNAME: '', AUTH_PASSWORD_HASH: '', APP_PORTS: '7682' } });
+  let stderr = '';
+  child.stderr.on('data', data => { stderr += data; });
+  const code = await new Promise(resolve => child.on('exit', resolve));
+  assert.equal(code, 1);
+  assert.match(stderr, /APP_PORTS must contain/);
+  assert.doesNotMatch(stderr, /Unable to start ttyd/);
 });
