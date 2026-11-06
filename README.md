@@ -4,7 +4,7 @@
 
 # Codex Terminal
 
-A compact Debian Bookworm Slim-based container with Codex CLI, ttyd, tmux, Git, and Node.js. No desktop required. The browser UI is exposed on port 7681. The terminal automatically fits the browser viewport, using a 10px font below 768px viewport width and 16px on larger screens, with a line height of 1.2. The mobile size approximates the apparent text size before device-width viewport fitting was introduced. It refits when the window resizes, the phone rotates, or the mobile keyboard opens or closes; browser zoom can remain at 100%.
+A compact Debian Bookworm Slim-based container with Codex CLI, ttyd, tmux, Git, and Node.js. No desktop required. The browser UI is exposed on port 7681. The terminal automatically fits the browser viewport, using a 12px font below 768px viewport width and 16px on larger screens, with a line height of 1.2. It refits when the window resizes, the phone rotates, or the mobile keyboard opens or closes; browser zoom can remain at 100%.
 
 The Docker image is available at `ghcr.io/dorseg/codex-terminal:latest`.
 
