@@ -1,8 +1,10 @@
 import { spawn } from 'node:child_process';
+import { appPorts } from './apps.mjs';
+import { installInstructions } from './instructions.mjs';
 import { credentials, createAuthServer } from './auth.mjs';
 
-let auth;
-try { auth = credentials(); } catch (error) { console.error(error.message); process.exit(1); }
+let auth, ports;
+try { auth = credentials(); ports = appPorts(process.env.APP_PORTS); installInstructions(ports); } catch (error) { console.error(error.message); process.exit(1); }
 const args = ['--writable', '--port', '7682', '--interface', '127.0.0.1',
   '--client-option', 'lineHeight=1.2',
   '--client-option', 'titleFixed=Codex Terminal',
@@ -12,7 +14,7 @@ delete childEnv.AUTH_USERNAME;
 delete childEnv.AUTH_PASSWORD;
 delete childEnv.AUTH_PASSWORD_HASH;
 const child = spawn('ttyd', args, { stdio: 'inherit', env: childEnv });
-const server = createAuthServer(auth ?? {});
+const server = createAuthServer({ ...auth, appPorts: ports });
 let shuttingDown = false;
 function stop(signal = 'SIGTERM') {
   if (shuttingDown) return;
