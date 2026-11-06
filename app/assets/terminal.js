@@ -24,7 +24,9 @@
       terminal.onRender(schedule);
       new ResizeObserver(schedule).observe(document.getElementById('terminal-container'));
     }
-    const fontSize = window.innerWidth < 768 ? 24 : 16;
+    // The old mobile page shrank a 24px font from a ~980px layout to the phone width.
+    // Use its approximate visible size now that the page uses a device-width viewport.
+    const fontSize = window.innerWidth < 768 ? 10 : 16;
     if (terminal.options.fontSize !== fontSize) terminal.options.fontSize = fontSize;
     if (terminal.options.lineHeight !== 1.2) terminal.options.lineHeight = 1.2;
     terminal.fit();
