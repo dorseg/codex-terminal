@@ -2,10 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import net from 'node:net';
+import { createRequire } from 'node:module';
+const { checkOrigin } = createRequire(import.meta.url)('termbeam/src/server/origin.js');
 import { spawn } from 'node:child_process';
-import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { credentials, createAuthServer } from '../app/auth.mjs';
 import { hashPassword } from '../app/password.mjs';
 
@@ -16,6 +16,7 @@ const listen = server => new Promise(resolve => server.listen(0, '127.0.0.1', ()
 async function setup(t, options = {}) {
   const upstream = http.createServer(options.upstreamHandler || ((req, res) => { res.end(`terminal:${req.url}`); }));
   upstream.on('upgrade', (req, socket, head) => {
+    options.onUpgrade?.(req);
     socket.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Protocol: tty\r\n\r\n');
     if (head.length) socket.write(head);
     socket.on('data', data => socket.write(data));
@@ -31,16 +32,16 @@ async function setup(t, options = {}) {
   return { server, request, login, port };
 }
 
-function upgrade(port, cookie = '', origin = `http://127.0.0.1:${port}`) {
+function upgrade(port, cookie = '', origin = `http://127.0.0.1:${port}`, path = '/ws', host = `127.0.0.1:${port}`) {
   return new Promise((resolve, reject) => {
     const socket = net.connect(port, '127.0.0.1', () => socket.write(
-      `GET /ws HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nOrigin: ${origin}\r\nCookie: ${cookie}\r\n\r\nhello`));
+      `GET ${path} HTTP/1.1\r\nHost: ${host}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nOrigin: ${origin}\r\nCookie: ${cookie}\r\n\r\nhello`));
     let received = '';
     socket.setTimeout(3000, () => { socket.destroy(); reject(new Error('WebSocket proxy timed out')); });
     socket.on('error', reject);
     socket.on('data', chunk => {
       received += chunk.toString();
-      if (received.includes('401') || received.includes('hello')) { socket.destroy(); resolve(received); }
+      if (received.includes('401') || received.includes('404') || received.includes('hello')) { socket.destroy(); resolve(received); }
     });
   });
 }
@@ -104,46 +105,40 @@ test('login logo is available before authentication with image content and a com
   assert.equal((await request('/assets/other.png')).status, 303);
 });
 
-test('terminal page keeps the app favicon after login, including on refresh', async t => {
-  const html = '<html><head><title>ttyd - Terminal</title><link rel="icon" type="image/png" href="data:image/png;base64,old"></head><body>Terminal ✓</body></html>';
-  const { request, login } = await setup(t, { upstreamHandler(req, res) {
-    assert.equal(req.headers['accept-encoding'], 'identity');
-    assert.equal(req.headers['if-none-match'], undefined);
-    res.writeHead(200, { 'Content-Type': 'text/html', 'Content-Length': Buffer.byteLength(html), ETag: 'old' });
-    res.end(html);
-  } });
-  const cookie = (await login()).headers.get('set-cookie').split(';')[0];
-  for (const path of ['/', '/?arg=example']) {
-    const page = await request(path, { headers: { cookie, 'accept-encoding': 'gzip', 'if-none-match': 'old' } });
-    const body = await page.text();
-    assert.equal(page.status, 200);
-    assert.match(body, /rel="icon" type="image\/png" href="\/assets\/logo.png"/);
-    assert.doesNotMatch(body, /base64,old/);
-    assert.match(body, /Terminal ✓/);
-    assert.match(body, /<title>Codex Terminal<\/title>/);
-    assert.match(body, /--terminal-height/);
-    assert.match(body, /window\.visualViewport/);
-    assert.match(body, /name="viewport" content="width=device-width, initial-scale=1"/);
-    assert.equal(Number(page.headers.get('content-length')), Buffer.byteLength(body));
-    assert.equal(page.headers.get('etag'), null);
-    assert.equal(page.headers.get('cache-control'), 'no-store');
-  }
-});
-
-test('without login, the same responsive page, token and WebSocket proxy are available', async t => {
-  const { request, port } = await setup(t, { username: undefined, passwordHash: undefined, upstreamHandler(req, res) {
-    if (req.url === '/token') return res.end('{"token":"example"}');
-    res.setHeader('Content-Type', 'text/html');
-    res.end('<html><head><title>ttyd</title></head><body><div id="terminal-container"></div></body></html>');
-  } });
-  const page = await request('/');
-  assert.equal(page.status, 200);
-  const body = await page.text();
-  assert.match(body, /window\.visualViewport/);
-  assert.match(body, /<title>Codex Terminal<\/title>/);
-  assert.equal(await (await request('/token')).text(), '{"token":"example"}');
-  assert.match(await upgrade(port), /101 Switching Protocols/);
-  assert.match(await upgrade(port, '', 'https://evil.example'), /401 Unauthorized/);
+for (const authenticated of [false, true]) test('TermBeam content is forwarded unchanged, auth=' + authenticated, async t => {
+  const html = '<html><head><title>TermBeam</title></head><body>Terminal ✓</body></html>';
+  const binary = Buffer.from([0, 255, 127, 1]);
+  const { request, login, port } = await setup(t, {
+    ...(authenticated ? {} : { username: undefined, passwordHash: undefined }),
+    upstreamHandler(req, res) {
+      assert.equal(req.headers['accept-encoding'], 'identity');
+      assert.equal(req.headers['if-none-match'], 'original');
+      if (req.url === '/api/echo') {
+        assert.equal(req.headers.host, 'terminal.example');
+        assert.equal(req.headers.origin, 'https://terminal.example');
+        assert.equal(req.headers['x-forwarded-proto'], 'https');
+        req.pipe(res); return;
+      }
+      res.writeHead(200, { 'Content-Type': req.url === '/' ? 'text/html' : 'application/octet-stream', ETag: 'original' });
+      res.end(req.url === '/' ? html : binary);
+    }
+  });
+  const cookie = authenticated ? (await login()).headers.get('set-cookie').split(';')[0] : '';
+  const headers = { cookie, 'accept-encoding': 'identity', 'if-none-match': 'original' };
+  const page = await request('/', { headers });
+  assert.equal(await page.text(), html);
+  assert.equal(page.headers.get('etag'), 'original');
+  assert.deepEqual(Buffer.from(await (await request('/asset.bin', { headers })).arrayBuffer()), binary);
+  // Use node:http because fetch controls the Host header.
+  const echoed = await new Promise((resolve, reject) => {
+    const req = http.request({ hostname: '127.0.0.1', port, path: '/api/echo', method: 'POST', headers: { ...headers, host: 'terminal.example', origin: 'https://terminal.example', 'x-forwarded-proto': 'https' } }, res => {
+      const chunks = []; res.on('data', chunk => chunks.push(chunk)); res.on('end', () => resolve(Buffer.concat(chunks)));
+    });
+    req.on('error', reject); req.end(binary);
+  });
+  assert.deepEqual(echoed, binary);
+  assert.match(await upgrade(port, cookie), /101 Switching Protocols/);
+  assert.match(await upgrade(port, cookie, 'https://evil.example'), /401 Unauthorized/);
 });
 
 test('forged, expired and previous-process sessions are rejected', async t => {
@@ -177,7 +172,7 @@ test('failed attempts are throttled and recover after cooldown', async t => {
   assert.equal((await login()).status, 303);
 });
 
-test('unavailable ttyd returns a gateway error', async t => {
+test('unavailable TermBeam returns a gateway error', async t => {
   const { request, login } = await setup(t, { upstreamPort: 1 });
   const cookie = (await login()).headers.get('set-cookie').split(';')[0];
   assert.equal((await request('/', { headers: { cookie } })).status, 502);
@@ -193,38 +188,6 @@ test('parallel failed attempts cannot bypass throttling', async t => {
   assert.equal((await login()).status, 303);
 });
 
-test('launcher preserves terminal options, strips credentials and forwards shutdown', async t => {
-  const dir = await mkdtemp(join(tmpdir(), 'codex-terminal-test-'));
-  t.after(() => rm(dir, { recursive: true, force: true }));
-  await writeFile(join(dir, 'ttyd'), `#!/usr/bin/env node
-console.log(JSON.stringify({args:process.argv.slice(2),user:process.env.AUTH_USERNAME,passwordHash:process.env.AUTH_PASSWORD_HASH}));
-process.on('SIGTERM',()=>{console.log('stopped');process.exit(0)});
-setInterval(()=>{},1000);
-`, { mode: 0o755 });
-  // Isolate the launcher test from a terminal already running on port 7681.
-  const preload = join(dir, 'ephemeral-port.mjs');
-  await writeFile(preload, `import { Server } from 'node:http';
-const listen = Server.prototype.listen;
-Server.prototype.listen = function(port, ...args) { return listen.call(this, port === 7681 ? 0 : port, ...args); };
-`);
-  const child = spawn(process.execPath, ['--import', preload, resolve('app/start.mjs')], { env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, CODEX_HOME: join(dir, 'codex-home'), AUTH_USERNAME: '', AUTH_PASSWORD_HASH: '' } });
-  t.after(() => child.kill('SIGKILL'));
-  let output = '';
-  await new Promise((resolve, reject) => {
-    child.once('error', reject);
-    child.stdout.on('data', data => { output += data; if (output.includes('\n')) resolve(); });
-  });
-  const info = JSON.parse(output.trim());
-  assert.match(await readFile(join(dir, 'codex-home', 'AGENTS.md'), 'utf8'), /Codex Terminal web app environment/);
-  assert.equal(info.user, undefined);
-  assert.equal(info.passwordHash, undefined);
-  assert.deepEqual(info.args, ['--writable', '--port', '7682', '--interface', '127.0.0.1', '--client-option', 'lineHeight=1.2', '--client-option', 'titleFixed=Codex Terminal', 'tmux', 'new-session', '-A', '-s', 'main']);
-  const exited = new Promise(resolve => child.on('exit', (code, signal) => resolve({ code, signal })));
-  child.kill('SIGTERM');
-  assert.deepEqual(await exited, { code: 0, signal: null });
-  assert.match(output, /stopped/);
-});
-
 test('launcher fails early for incomplete credentials', async () => {
   const child = spawn(process.execPath, [resolve('app/start.mjs')], { env: { ...process.env, AUTH_USERNAME: 'alice', AUTH_PASSWORD_HASH: '' } });
   let stderr = '';
@@ -235,12 +198,52 @@ test('launcher fails early for incomplete credentials', async () => {
 });
 
 
-test('launcher rejects invalid APP_PORTS before starting ttyd', async () => {
+test('launcher rejects invalid APP_PORTS before starting TermBeam', async () => {
   const child = spawn(process.execPath, [resolve('app/start.mjs')], { env: { ...process.env, AUTH_USERNAME: '', AUTH_PASSWORD_HASH: '', APP_PORTS: '7682' } });
   let stderr = '';
   child.stderr.on('data', data => { stderr += data; });
   const code = await new Promise(resolve => child.on('exit', resolve));
   assert.equal(code, 1);
   assert.match(stderr, /APP_PORTS must contain/);
-  assert.doesNotMatch(stderr, /Unable to start ttyd/);
+  assert.doesNotMatch(stderr, /Unable to start TermBeam/);
+});
+
+for (const authenticated of [false, true]) test('preview and update routes cannot bypass gateway policy, auth=' + authenticated, async t => {
+  let forwarded = 0;
+  const { request, login, port } = await setup(t, {
+    ...(authenticated ? {} : { username: undefined, passwordHash: undefined }),
+    upstreamHandler(req, res) { forwarded++; res.end('unexpected'); }
+  });
+  const cookie = authenticated ? (await login()).headers.get('set-cookie').split(';')[0] : '';
+  const paths = ['/preview', '/preview/3000/', '/PREVIEW/3000/', '/%70review/3000/', '/pre%76iew', '/%2570review/3000/', '/preview%2f3000/', '/preview%5c3000/', '/api/../preview/3000/'];
+  // node:http preserves encoded/dot-segment paths for the gateway to validate.
+  const raw = path => new Promise((resolve, reject) => {
+    const req = http.request({ hostname: '127.0.0.1', port, path, headers: { cookie } }, res => { res.resume(); resolve(res.statusCode); });
+    req.on('error', reject); req.end();
+  });
+  for (const path of paths) {
+    assert.equal(await raw(path), 404, path);
+    assert.match(await upgrade(port, cookie, `http://127.0.0.1:${port}`, path), /404 Not Found/, path);
+  }
+  for (const path of ['/api/update', '/API/UPDATE/', '/api/%75pdate', '/api/update/status', '/api/update?force=1']) {
+    const res = await request(path, { method: 'POST', headers: { cookie } });
+    assert.equal(res.status, 403, path);
+    assert.match((await res.json()).error, /Recreate the container from an updated image/);
+  }
+  assert.equal(forwarded, 0);
+});
+
+test('external HTTPS origin survives HTTP and WebSocket proxying and TermBeam rejects foreign origins', async t => {
+  const { request, port } = await setup(t, { username: undefined, passwordHash: undefined, onUpgrade(req) {
+    assert.equal(req.headers.host, 'terminal.example');
+    assert.equal(req.headers.origin, 'https://terminal.example');
+    assert.equal(checkOrigin(req, {}).ok, true);
+  }, upstreamHandler(req, res) {
+    const result = checkOrigin(req, {});
+    res.writeHead(result.ok ? 200 : 403); res.end();
+  } });
+  assert.equal((await request('/api/sessions', { headers: { origin: `https://127.0.0.1:${port}`, 'x-forwarded-proto': 'https' } })).status, 200);
+  assert.equal((await request('/api/sessions', { headers: { origin: 'https://evil.example' } })).status, 403);
+  assert.equal((await request('/api/sessions', { headers: { 'sec-fetch-site': 'cross-site' } })).status, 403);
+  assert.match(await upgrade(port, '', 'https://terminal.example', '/ws', 'terminal.example'), /101 Switching Protocols/);
 });

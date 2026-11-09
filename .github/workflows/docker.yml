@@ -6,6 +6,9 @@ on:
     paths:
       - 'app/**'
       - 'test/**'
+      - 'scripts/**'
+      - 'package.json'
+      - 'package-lock.json'
       - 'Dockerfile'
       - '.dockerignore'
       - '.github/workflows/docker.yml'
@@ -29,8 +32,14 @@ jobs:
         with:
           node-version: '24'
 
-      - name: Test authentication
+      - name: Install dependencies
+        run: npm ci --omit=dev
+
+      - name: Test gateway and launcher
         run: node --test test/*.test.mjs
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -52,6 +61,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          platforms: linux/amd64,linux/arm64
           push: true
           pull: true
           no-cache: true
@@ -61,3 +71,25 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.description=Minimal browser-based Codex CLI environment
+
+  smoke:
+    timeout-minutes: 10
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        architecture: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Smoke-test native PTY and gateway
+        shell: bash
+        run: |
+          docker run --rm --platform linux/${{ matrix.architecture }} \
+            -v "$PWD/scripts/smoke.mjs:/tmp/smoke.mjs:ro" \
+            "ghcr.io/${GITHUB_REPOSITORY,,}:${GITHUB_SHA}" node /tmp/smoke.mjs

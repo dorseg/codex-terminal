@@ -3,7 +3,6 @@ import { appRoute } from './apps.mjs';
 import { readFileSync } from 'node:fs';
 import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
 import { parsePasswordHash, verifyPassword } from './password.mjs';
-import { terminalPage as customizeTerminalPage } from './terminal.mjs';
 
 const SESSION_MS = 8 * 60 * 60 * 1000;
 const COOKIE = 'codex_terminal_session';
@@ -37,6 +36,25 @@ button{margin-top:24px;background:#b8e7ce;color:#10251b;font-weight:600;cursor:p
 <form action="/login${next === '/' ? '' : '?next=' + encodeURIComponent(next)}" method="post"><input type="hidden" name="next" value="${escapeAttribute(next)}"><label for="username">Username</label><input id="username" name="username" autocomplete="username" required autofocus>
 <label for="password">Password</label><input id="password" type="password" name="password" autocomplete="current-password" required>
 <button type="submit">Sign in</button></form></main></html>`;
+}
+
+// Canonicalize defensively before forwarding to Express's case-insensitive routes.
+// Reject malformed targets rather than allowing an alternate parser to route them.
+function restrictedRoute(target) {
+  try {
+    if (!target.startsWith('/') || target.startsWith('//')) return 'invalid';
+    let path = target.split('?')[0];
+    for (let i = 0; i < 8; i++) {
+      const decoded = decodeURIComponent(path);
+      if (decoded === path) break;
+      path = decoded;
+      if (i === 7) return 'invalid';
+    }
+    path = new URL(path.replaceAll('\\', '/'), 'http://localhost').pathname.toLowerCase();
+    if (/^\/preview(?:\/|$)/.test(path)) return 'preview';
+    if (/^\/api\/update(?:\/|$)/.test(path)) return 'update';
+  } catch { return 'invalid'; }
+  return null;
 }
 
 export function createAuthServer({ username, passwordHash, upstreamPort = 7682, now = Date.now, sessionMs = SESSION_MS, appPorts = new Set() } = {}) {
@@ -138,38 +156,18 @@ export function createAuthServer({ username, passwordHash, upstreamPort = 7682, 
     }
     const route = appRoute(req.url, appPorts);
     if (!authenticated(req)) return reply(res, 303, '', { Location: route && !route.invalid ? `/login?next=${encodeURIComponent(req.url)}` : '/login' });
+    const restricted = restrictedRoute(req.url);
+    if (restricted === 'update') return reply(res, 403, JSON.stringify({ error: 'Recreate the container from an updated image to update TermBeam.' }), { 'Content-Type': 'application/json' });
+    if (restricted) return reply(res, 404, 'Not found.');
     if (route?.invalid) return reply(res, 404, 'App not found.');
     if (route?.redirect) {
       const query = req.url.indexOf('?');
       const location = query === -1 ? req.url + '/' : req.url.slice(0, query) + '/' + req.url.slice(query);
       return reply(res, 308, '', { Location: location });
     }
-    const terminalPage = req.method === 'GET' && req.url.split('?')[0] === '/';
     const headers = route ? appHeaders(req.headers) : { ...req.headers };
-    if (terminalPage) {
-      // Customize the embedded ttyd HTML in both authentication modes.
-      headers['accept-encoding'] = 'identity';
-      delete headers['if-none-match'];
-      delete headers['if-modified-since'];
-    }
     const upstream = http.request({ hostname: '127.0.0.1', port: route?.port ?? upstreamPort, path: req.url, method: req.method, headers }, response => {
-      if (terminalPage && response.statusCode === 200 && response.headers['content-type']?.startsWith('text/html')) {
-        const chunks = [];
-        response.on('data', chunk => chunks.push(chunk));
-        response.on('error', () => res.destroy());
-        response.on('end', () => {
-          const html = customizeTerminalPage(Buffer.concat(chunks).toString('utf8'));
-          const body = Buffer.from(html);
-          const headers = { ...response.headers, 'cache-control': 'no-store', 'content-length': body.length };
-          delete headers['transfer-encoding'];
-          delete headers.etag;
-          delete headers['last-modified'];
-          res.writeHead(response.statusCode, headers);
-          res.end(body);
-        });
-        return;
-      }
-      res.writeHead(response.statusCode, route ? responseHeaders(response.headers, true) : { ...response.headers, 'cache-control': 'no-store' });
+      res.writeHead(response.statusCode, responseHeaders(response.headers, Boolean(route)));
       response.pipe(res);
       response.on('error', () => res.destroy());
     });
@@ -184,7 +182,7 @@ export function createAuthServer({ username, passwordHash, upstreamPort = 7682, 
       return;
     }
     const route = appRoute(req.url, appPorts);
-    if (route?.invalid || route?.redirect) {
+    if (restrictedRoute(req.url) || route?.invalid || route?.redirect) {
       socket.end('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n');
       return;
     }
