@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import net from 'node:net';
 import { createRequire } from 'node:module';
-const { checkOrigin } = createRequire(import.meta.url)('termbeam/src/server/origin.js');
+const { checkOrigin, createCsrfGuard } = createRequire(import.meta.url)('termbeam/src/server/origin.js');
+const express = createRequire(import.meta.resolve('termbeam'))('express');
 import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 import { credentials, createAuthServer } from '../app/auth.mjs';
@@ -234,16 +235,21 @@ for (const authenticated of [false, true]) test('preview and update routes canno
 });
 
 test('external HTTPS origin survives HTTP and WebSocket proxying and TermBeam rejects foreign origins', async t => {
+  const upstream = express();
+  upstream.use(createCsrfGuard());
+  upstream.all('/api/sessions', (_req, res) => res.sendStatus(200));
   const { request, port } = await setup(t, { username: undefined, passwordHash: undefined, onUpgrade(req) {
     assert.equal(req.headers.host, 'terminal.example');
     assert.equal(req.headers.origin, 'https://terminal.example');
     assert.equal(checkOrigin(req, {}).ok, true);
-  }, upstreamHandler(req, res) {
-    const result = checkOrigin(req, {});
-    res.writeHead(result.ok ? 200 : 403); res.end();
-  } });
+  }, upstreamHandler: upstream });
   assert.equal((await request('/api/sessions', { headers: { origin: `https://127.0.0.1:${port}`, 'x-forwarded-proto': 'https' } })).status, 200);
-  assert.equal((await request('/api/sessions', { headers: { origin: 'https://evil.example' } })).status, 403);
+  // Exercise the actual middleware: safe reads without Fetch Metadata are
+  // allowed, while browser cross-site reads and foreign writes are blocked.
+  assert.equal((await request('/api/sessions', { headers: { origin: 'https://evil.example' } })).status, 200);
+  assert.equal((await request('/api/sessions', { headers: { origin: 'https://evil.example', 'sec-fetch-site': 'cross-site' } })).status, 403);
+  assert.equal((await request('/api/sessions', { method: 'POST', headers: { origin: 'https://evil.example' } })).status, 403);
+  assert.equal((await request('/api/sessions', { method: 'POST', headers: { origin: `https://127.0.0.1:${port}`, 'x-forwarded-proto': 'https' } })).status, 200);
   assert.equal((await request('/api/sessions', { headers: { 'sec-fetch-site': 'cross-site' } })).status, 403);
   assert.match(await upgrade(port, '', 'https://terminal.example', '/ws', 'terminal.example'), /101 Switching Protocols/);
 });
