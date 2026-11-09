@@ -75,7 +75,15 @@ try {
       assert.equal((await request('/apps/3001/')).status, 404);
       assert.equal((await request('/preview/3000/')).status, 404);
       assert.equal((await request('/api/update', { method: 'POST' })).status, 403);
-      assert.equal((await request('/api/sessions', { headers: { origin: 'https://foreign.example' } })).status, 403);
+      // Browser cross-site reads carry Fetch Metadata. Origin alone on a safe
+      // GET is intentionally permitted by TermBeam for non-browser clients.
+      assert.equal((await request('/api/sessions', { headers: { origin: 'https://foreign.example', 'sec-fetch-site': 'cross-site' } })).status, 403);
+      assert.equal((await request('/api/sessions', {
+        method: 'POST',
+        headers: { origin: 'https://foreign.example', 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'must-not-be-created' }),
+      })).status, 403);
+      assert.equal((await api('/api/sessions')).length, 2);
       await api(`/api/sessions/${second.id}`, 'DELETE');
       assert.equal((await api('/api/sessions')).length, 1);
       child.kill('SIGTERM');
