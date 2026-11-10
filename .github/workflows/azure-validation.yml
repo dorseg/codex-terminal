@@ -87,10 +87,10 @@ jobs:
             -v "$GITHUB_WORKSPACE/scripts/smoke.mjs:/tmp/smoke.mjs:ro" \
             "$TERMINAL_IMAGE" sh -ceu '
               test "$(id -u)" = 1000
-              codex sandbox -- /bin/sh -c "echo SANDBOX_OK > /workspace/.sandbox-check"
+              codex sandbox linux --permission-profile :workspace --cd /workspace -- /bin/sh -c "echo SANDBOX_OK > /workspace/.sandbox-check"
               test "$(cat /workspace/.sandbox-check)" = SANDBOX_OK
               touch /home/node/.codex/.outside-control
-              if codex sandbox -- /bin/sh -c "touch /home/node/.codex/.must-not-exist"; then
+              if codex sandbox linux --permission-profile :workspace --cd /workspace -- /bin/sh -c "touch /home/node/.codex/.must-not-exist"; then
                 echo "Inner sandbox unexpectedly wrote outside the workspace" >&2
                 exit 1
               fi
