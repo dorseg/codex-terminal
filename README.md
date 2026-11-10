@@ -8,9 +8,9 @@ A compact Debian Bookworm Slim-based container with Codex CLI, Remobi, tmux, Git
 
 Remobi provides a browser view of the shared tmux session `main`, starting Bash in `/workspace`. tmux windows act as terminal tabs. All connected browsers share the same active window, terminal output, input, and size. Browser disconnects preserve running sessions while the container stays running.
 
-Use Remobi's touch controls or standard tmux shortcuts: press **Ctrl+B**, release, then **C** to create a window, **N/P** to switch, **,** to rename, or **&** to close (confirm with **Y**). Swipe left/right on mobile to switch windows. Mouse support is enabled and the tmux status bar appears at the top by default.
+Use Remobi's touch controls or standard tmux shortcuts: press **Ctrl+B**, release, then **C** to create a window, **N/P** to switch, **,** to rename, or **&** to close (confirm with **Y**). Swipe left/right on mobile to switch windows. Mouse support is enabled and the tmux status bar appears at the bottom by default.
 
-tmux retains up to 10,000 lines of scrollback per pane and renumbers windows when one closes. Below 80 terminal columns, the status bar hides the session name, hostname, and clock, and truncates window names to 10 characters. Wider terminals display the full status bar.
+tmux retains up to 10,000 lines of scrollback per pane and renumbers windows when one closes. The status bar uses a dark background with a blue session label, a yellow active window, and a teal clock.
 
 The Docker image is available at `ghcr.io/dorseg/codex-terminal:latest`.
 
