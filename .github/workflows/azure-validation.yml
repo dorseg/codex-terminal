@@ -33,7 +33,7 @@ jobs:
           python3 -m unittest discover -s infra/azure -p 'test_*.py' -v
           python3 infra/azure/vm/manage_vm.py --help
           bash -n infra/azure/vm/configure.sh infra/azure/vm/boot-guards.sh infra/azure/vm/domain.sh
-          sh -n infra/azure/vm/network-rules.sh infra/azure/runtime-check.sh
+          sh -n infra/azure/vm/network-rules.sh infra/azure/vm/sandbox-check.sh infra/azure/runtime-check.sh
       - name: Test the application gateway against its pinned dependencies
         run: |
           npm ci --omit=dev --ignore-scripts --no-audit --no-fund
@@ -84,16 +84,9 @@ jobs:
             --security-opt apparmor=codex-terminal \
             -v "$check_root/workspace:/workspace" \
             -v "$check_root/config:/home/node/.codex" \
+            -v "$GITHUB_WORKSPACE/infra/azure/vm/sandbox-check.sh:/tmp/sandbox-check.sh:ro" \
             -v "$GITHUB_WORKSPACE/scripts/smoke.mjs:/tmp/smoke.mjs:ro" \
             "$TERMINAL_IMAGE" sh -ceu '
-              test "$(id -u)" = 1000
-              codex sandbox linux --permission-profile :workspace --cd /workspace -- /bin/sh -c "echo SANDBOX_OK > /workspace/.sandbox-check"
-              test "$(cat /workspace/.sandbox-check)" = SANDBOX_OK
-              touch /home/node/.codex/.outside-control
-              if codex sandbox linux --permission-profile :workspace --cd /workspace -- /bin/sh -c "touch /home/node/.codex/.must-not-exist"; then
-                echo "Inner sandbox unexpectedly wrote outside the workspace" >&2
-                exit 1
-              fi
-              test ! -e /home/node/.codex/.must-not-exist
+              sh /tmp/sandbox-check.sh
               node /tmp/smoke.mjs
             '

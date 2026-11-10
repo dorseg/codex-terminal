@@ -382,10 +382,7 @@ class VM(Deployment):
 set -eu
 cd /etc/codex-terminal
 docker compose -f compose.json ps
-docker compose -f compose.json exec -T terminal sh -c 'test "$(id -u)" = 1000; codex sandbox linux --permission-profile :workspace --cd /workspace -- /bin/sh -c "echo INNER_SANDBOX_OK"'
-docker compose -f compose.json exec -T terminal codex sandbox linux --permission-profile :workspace --cd /workspace -- /bin/sh -c 'marker=$(mktemp /workspace/.sandbox-check-XXXXXX); echo workspace-write > "$marker"; test "$(cat "$marker")" = workspace-write; rm "$marker"; echo INNER_SANDBOX_WORKSPACE_WRITE_OK'
 docker compose -f compose.json exec -T terminal sh -c 'test ! -S /var/run/docker.sock; test ! -e /etc/oauth2-proxy.cfg'
-docker compose -f compose.json exec -T terminal sh -c 'touch /home/node/.codex/.sandbox-control; rm /home/node/.codex/.sandbox-control; if codex sandbox linux --permission-profile :workspace --cd /workspace -- /bin/sh -c "touch /home/node/.codex/.sandbox-deny-check"; then rm -f /home/node/.codex/.sandbox-deny-check; exit 1; fi; test ! -e /home/node/.codex/.sandbox-deny-check; echo INNER_SANDBOX_WRITE_DENIED'
 docker compose -f compose.json exec -T terminal sh -c 'if curl -fsS --max-time 3 -o /dev/null -H Metadata:true "http://169.254.169.254/metadata/instance?api-version=2021-02-01"; then exit 1; fi; echo AZURE_METADATA_BLOCKED'
 python3 - <<'PY'
 import json,subprocess,tomllib
@@ -419,7 +416,10 @@ PY
                            f'assert c["client_id"]=={self.state["clientId"]!r}\n'
                            f'assert c["oidc_issuer_url"]=={"https://login.microsoftonline.com/"+self.config["tenantId"]+"/v2.0"!r}\n'
                            'print("IMMUTABLE_OWNER_ID_ALLOWLIST_OK")\nIDENTITY\n')
-        output = self.run('verify-terminal', script + identity_assert)
+        sandbox_script = base64.b64encode((HERE / 'sandbox-check.sh').read_bytes()).decode()
+        sandbox_assert = ('\nprintf %s ' + sandbox_script + ' | base64 -d | '
+                          'docker compose -f /etc/codex-terminal/compose.json exec -T terminal sh\n')
+        output = self.run('verify-terminal', script + identity_assert + sandbox_assert)
         print(output)
         self.check_https()
         self.state['vm']['verifiedAt'] = dt.datetime.now(dt.timezone.utc).isoformat()

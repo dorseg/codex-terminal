@@ -208,7 +208,7 @@ python3 infra/azure/vm/manage_vm.py test-proxy
 python3 infra/azure/vm/manage_vm.py runtime-check
 ```
 
-`verify` inspects live Azure/Entra settings, container boundaries, allowed sandbox writes in the workspace and denied writes outside it, metadata blocking, trusted HTTPS, and anonymous/forged-cookie HTTP/WebSocket rejection. Its standalone sandbox checks explicitly select `--permission-profile :workspace`; the helper's default read-only behavior would not prove workspace writes work. `test-proxy` creates temporary localhost-only containers with synthetic OIDC credentials and accepts the owner while rejecting another object ID, wrong issuer/audience/nonce and invalid signature. `runtime-check` creates and removes its own scratch directory, checking Git, symlinks, executables and an npm/TypeScript build without package install scripts. No OpenAI login is needed for these checks.
+`verify` inspects live Azure/Entra settings, container boundaries, allowed sandbox writes in the workspace and denied writes outside it, metadata blocking, trusted HTTPS, and anonymous/forged-cookie HTTP/WebSocket rejection. Its sandbox checker selects an explicit workspace policy supported by the bundled CLI and requires both write probes to pass; the helper's default read-only behavior would not prove workspace writes work. `test-proxy` creates temporary localhost-only containers with synthetic OIDC credentials and accepts the owner while rejecting another object ID, wrong issuer/audience/nonce and invalid signature. `runtime-check` creates and removes its own scratch directory, checking Git, symlinks, executables and an npm/TypeScript build without package install scripts. No OpenAI login is needed for these checks.
 
 ## 7. Sign in and prove browser access
 
