@@ -1,7 +1,1 @@
 node_modules/
-
-# Local Azure credentials, deployment state and administrator keys
-.azure/
-__pycache__/
-*.pyc
-infra/azure/**/*.json.tmp
