@@ -68,7 +68,7 @@ try {
       await until(() => terminal.output().includes('SIZE_29 100'), 'PTY resize (one tmux status row)');
       assert.equal(tmux('display-message', '-p', '-t', 'main', '#{pane_current_path}'), '/workspace');
       assert.equal(tmux('show-options', '-gv', 'mouse'), 'on');
-      assert.equal(tmux('show-options', '-gv', 'status-position'), 'top');
+      assert.equal(tmux('show-options', '-gv', 'status-position'), 'bottom');
       assert.equal(tmux('show-options', '-gv', 'prefix'), 'C-b');
       // Exercise tmux bindings over the browser protocol, including confirmation.
       terminal.send({ type: 'input', data: '\x02c' });
