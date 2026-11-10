@@ -12,7 +12,7 @@ Use Remobi's touch controls or standard tmux shortcuts: press **Ctrl+B**, releas
 
 tmux retains up to 10,000 lines of scrollback per pane and renumbers windows when one closes. The status bar uses a dark background with a blue session label, a yellow active window, and a teal clock.
 
-New Remobi configs add five shortcuts to **More**. **AI Usage** shows the 5-hour and weekly Codex quota when available. **Quick Shell** opens a temporary shell in the active pane's directory. **Diff** shows local Git changes or the committed branch diff when the working tree is clean. **Ports** lists configured `/apps/<port>/` paths and checks whether each app responds. **Codex** starts a new Codex session in a separate tmux window in the active pane's directory. Existing configs are preserved on upgrade. To add the buttons to an existing setup, merge the [bundled drawer entries](app/remobi.config.js) into your config and restart the container.
+New Remobi configs add five shortcuts to **More**. **AI Usage** shows the 5-hour and weekly Codex quota when available. **Quick Shell** opens a temporary shell in the active pane's directory. **Diff** shows local Git changes or the committed branch diff when the working tree is clean. **Ports** lists configured `/apps/<port>/` paths and checks whether each app responds. **Codex** opens a menu to start Codex normally or with `--yolo`, which bypasses approvals and sandboxing. Either choice opens a new tmux window in the active pane's directory. Existing configs are preserved on upgrade. To add the buttons to an existing setup, merge the [bundled drawer entries](app/remobi.config.js) into your config and restart the container.
 
 The Docker image is available at `ghcr.io/dorseg/codex-terminal:latest`.
 
