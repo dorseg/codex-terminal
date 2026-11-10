@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,7 +15,7 @@ try {
   const dir = join(process.env.CODEX_HOME || join(homedir(), '.codex'), 'remobi');
   mkdirSync(dir, { recursive: true });
   config = join(dir, 'remobi.config.js');
-  try { writeFileSync(config, readFileSync(new URL('./remobi.config.js', import.meta.url)), { flag: 'wx', mode: 0o600 }); }
+  try { writeFileSync(config, '// Customize Remobi controls, gestures, and appearance. Restart to apply.\nexport default {};\n', { flag: 'wx', mode: 0o600 }); }
   catch (error) { if (error.code !== 'EEXIST') throw error; }
 } catch (error) { console.error(error.message); process.exit(1); }
 const args = ['serve', '--config', config, '--host', '127.0.0.1', '--port', '7682', '--', 'tmux', 'new-session', '-A', '-s', 'main', '-c', '/workspace', '/bin/bash'];
