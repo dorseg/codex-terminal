@@ -2,9 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import net from 'node:net';
-import { createRequire } from 'node:module';
-const { checkOrigin, createCsrfGuard } = createRequire(import.meta.url)('termbeam/src/server/origin.js');
-const express = createRequire(import.meta.resolve('termbeam'))('express');
 import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 import { credentials, createAuthServer } from '../app/auth.mjs';
@@ -106,8 +103,8 @@ test('login logo is available before authentication with image content and a com
   assert.equal((await request('/assets/other.png')).status, 303);
 });
 
-for (const authenticated of [false, true]) test('TermBeam content is forwarded unchanged, auth=' + authenticated, async t => {
-  const html = '<html><head><title>TermBeam</title></head><body>Terminal ✓</body></html>';
+for (const authenticated of [false, true]) test('Remobi content is forwarded unchanged, auth=' + authenticated, async t => {
+  const html = '<html><head><title>Remobi</title></head><body>Terminal ✓</body></html>';
   const binary = Buffer.from([0, 255, 127, 1]);
   const { request, login, port } = await setup(t, {
     ...(authenticated ? {} : { username: undefined, passwordHash: undefined }),
@@ -173,7 +170,7 @@ test('failed attempts are throttled and recover after cooldown', async t => {
   assert.equal((await login()).status, 303);
 });
 
-test('unavailable TermBeam returns a gateway error', async t => {
+test('unavailable Remobi returns a gateway error', async t => {
   const { request, login } = await setup(t, { upstreamPort: 1 });
   const cookie = (await login()).headers.get('set-cookie').split(';')[0];
   assert.equal((await request('/', { headers: { cookie } })).status, 502);
@@ -199,57 +196,26 @@ test('launcher fails early for incomplete credentials', async () => {
 });
 
 
-test('launcher rejects invalid APP_PORTS before starting TermBeam', async () => {
+test('launcher rejects invalid APP_PORTS before starting Remobi', async () => {
   const child = spawn(process.execPath, [resolve('app/start.mjs')], { env: { ...process.env, AUTH_USERNAME: '', AUTH_PASSWORD_HASH: '', APP_PORTS: '7682' } });
   let stderr = '';
   child.stderr.on('data', data => { stderr += data; });
   const code = await new Promise(resolve => child.on('exit', resolve));
   assert.equal(code, 1);
   assert.match(stderr, /APP_PORTS must contain/);
-  assert.doesNotMatch(stderr, /Unable to start TermBeam/);
+  assert.doesNotMatch(stderr, /Unable to start Remobi/);
 });
 
-for (const authenticated of [false, true]) test('preview and update routes cannot bypass gateway policy, auth=' + authenticated, async t => {
-  let forwarded = 0;
-  const { request, login, port } = await setup(t, {
-    ...(authenticated ? {} : { username: undefined, passwordHash: undefined }),
-    upstreamHandler(req, res) { forwarded++; res.end('unexpected'); }
-  });
-  const cookie = authenticated ? (await login()).headers.get('set-cookie').split(';')[0] : '';
-  const paths = ['/preview', '/preview/3000/', '/PREVIEW/3000/', '/%70review/3000/', '/pre%76iew', '/%2570review/3000/', '/preview%2f3000/', '/preview%5c3000/', '/api/../preview/3000/'];
-  // node:http preserves encoded/dot-segment paths for the gateway to validate.
-  const raw = path => new Promise((resolve, reject) => {
-    const req = http.request({ hostname: '127.0.0.1', port, path, headers: { cookie } }, res => { res.resume(); resolve(res.statusCode); });
-    req.on('error', reject); req.end();
-  });
-  for (const path of paths) {
-    assert.equal(await raw(path), 404, path);
-    assert.match(await upgrade(port, cookie, `http://127.0.0.1:${port}`, path), /404 Not Found/, path);
-  }
-  for (const path of ['/api/update', '/API/UPDATE/', '/api/%75pdate', '/api/update/status', '/api/update?force=1']) {
-    const res = await request(path, { method: 'POST', headers: { cookie } });
-    assert.equal(res.status, 403, path);
-    assert.match((await res.json()).error, /Recreate the container from an updated image/);
-  }
-  assert.equal(forwarded, 0);
-});
-
-test('external HTTPS origin survives HTTP and WebSocket proxying and TermBeam rejects foreign origins', async t => {
-  const upstream = express();
-  upstream.use(createCsrfGuard());
-  upstream.all('/api/sessions', (_req, res) => res.sendStatus(200));
+test('external HTTPS origin survives HTTP and WebSocket proxying', async t => {
   const { request, port } = await setup(t, { username: undefined, passwordHash: undefined, onUpgrade(req) {
     assert.equal(req.headers.host, 'terminal.example');
     assert.equal(req.headers.origin, 'https://terminal.example');
-    assert.equal(checkOrigin(req, {}).ok, true);
-  }, upstreamHandler: upstream });
-  assert.equal((await request('/api/sessions', { headers: { origin: `https://127.0.0.1:${port}`, 'x-forwarded-proto': 'https' } })).status, 200);
-  // Exercise the actual middleware: safe reads without Fetch Metadata are
-  // allowed, while browser cross-site reads and foreign writes are blocked.
-  assert.equal((await request('/api/sessions', { headers: { origin: 'https://evil.example' } })).status, 200);
-  assert.equal((await request('/api/sessions', { headers: { origin: 'https://evil.example', 'sec-fetch-site': 'cross-site' } })).status, 403);
-  assert.equal((await request('/api/sessions', { method: 'POST', headers: { origin: 'https://evil.example' } })).status, 403);
-  assert.equal((await request('/api/sessions', { method: 'POST', headers: { origin: `https://127.0.0.1:${port}`, 'x-forwarded-proto': 'https' } })).status, 200);
-  assert.equal((await request('/api/sessions', { headers: { 'sec-fetch-site': 'cross-site' } })).status, 403);
+  }, upstreamHandler(req, res) {
+    assert.equal(req.headers.origin, `https://127.0.0.1:${port}`);
+    assert.equal(req.headers['x-forwarded-proto'], 'https');
+    res.end('forwarded');
+  } });
+  assert.equal(await (await request('/', { headers: { origin: `https://127.0.0.1:${port}`, 'x-forwarded-proto': 'https' } })).text(), 'forwarded');
   assert.match(await upgrade(port, '', 'https://terminal.example', '/ws', 'terminal.example'), /101 Switching Protocols/);
+  assert.match(await upgrade(port, '', 'https://foreign.example', '/ws', 'terminal.example'), /401 Unauthorized/);
 });

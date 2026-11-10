@@ -4,9 +4,11 @@
 
 # Codex Terminal
 
-A compact Debian Bookworm Slim-based container with Codex CLI, TermBeam, tmux, Git, and Node.js. No desktop required. The browser UI is exposed on port 7681.
+A compact Debian Bookworm Slim-based container with Codex CLI, Remobi, tmux, Git, and Node.js. No desktop required. The browser UI is exposed on port 7681.
 
-TermBeam provides native mobile touch controls, responsive terminal sizing, themes, and multiple sessions. One Bash session opens in /workspace by default. Create, switch, rename, and close sessions in TermBeam's UI. Browser disconnects preserve running sessions while the container stays running.
+Remobi provides a browser view of the shared tmux session `main`, starting Bash in `/workspace`. tmux windows act as terminal tabs. All connected browsers share the same active window, terminal output, input, and size. Browser disconnects preserve running sessions while the container stays running.
+
+Use Remobi's touch controls or standard tmux shortcuts: press **Ctrl+B**, release, then **C** to create a window, **N/P** to switch, **,** to rename, or **&** to close (confirm with **Y**). Swipe left/right on mobile to switch windows. Mouse support is enabled and the tmux status bar appears at the top by default.
 
 The Docker image is available at `ghcr.io/dorseg/codex-terminal:latest`.
 
@@ -170,25 +172,27 @@ Use the default container command for terminal login to work. HTTP is supported 
 ## Persistence and updates
 
 - The process runs as the unprivileged `node` user (UID 1000), not as root.
-- TermBeam starts one native Bash session. Browser disconnects preserve PTY sessions while the container runs. tmux remains available for persistent app servers; no tmux session is attached automatically.
-- TermBeam configuration is stored in `CODEX_HOME/termbeam` (default `/home/node/.codex/termbeam`) in the existing config volume. Browser-local preferences remain in browser storage.
+- Remobi attaches to tmux session `main`, creating it if absent. Bash starts in `/workspace`. Running shells and app servers survive browser disconnects.
+- An editable `CODEX_HOME/remobi/remobi.config.js` (default `/home/node/.codex/remobi/remobi.config.js`) is created only when absent and passed explicitly to Remobi. Edit its default export to customize controls, gestures, and appearance; restart the container to apply changes. See the [Remobi configuration reference](https://github.com/connorads/remobi#configuration). System tmux defaults load before user configuration; use `~/.tmux.conf` or `~/.config/tmux/tmux.conf` to override them. Persist those files separately if needed.
 - Container restarts **do** terminate tmux and running Codex processes.
 - Code and Codex credentials survive container recreation because they reside in mapped volumes.
-- New images are published weekly and when app or build changes land on `main`. They include updates to the base image, OS packages, and Codex CLI.
+- New images are published weekly and when app or build changes land on `main`. They include updates to the base image, OS packages, Codex CLI, and the stable `remobi@latest` release resolved at build time.
 - There is no migration of live sessions. Finish active tasks before cutover; existing volumes need no data migration.
 - To update, pull the latest image and recreate the container with the same settings and volume mappings. Published images do **not** automatically update your running container. Update when no Codex task is running.
 - Never mount the Docker socket or unrestricted host paths into this container, or run it in privileged mode.
 
 ## Development
 
-The image uses `node:24-bookworm-slim`. TermBeam is pinned to 1.25.5 in `package.json` with a committed lockfile. Native dependencies compile in a separate build stage; compiler tools are excluded from the runtime image. TermBeam authentication and tunnels are disabled behind the gateway. Its built-in `/preview` proxy is blocked so previews must use `APP_PORTS`; in-app updates are blocked. Rebuild and recreate the container to update TermBeam.
+The image uses `node:24-bookworm-slim`. Remobi is installed separately as `remobi@latest`; its resolved version is printed during the build and is never saved to the repository manifest or lockfile. Native dependencies compile in the build stage; compiler tools are excluded from the runtime image. Remobi listens on `127.0.0.1:7682` behind the existing gateway on port 7681.
+
+Use `scripts/build.sh` for local builds. It invokes BuildKit with `--no-cache-filter remobi`, so every invocation resolves and installs the stable npm latest tag even with cached dependencies and runtime layers. CI uses the same stage filter. Dockerfiles cannot declare an intrinsically uncached stage; direct Buildx invocations must also supply `--no-cache-filter remobi` (or `--no-cache`). No runtime update or live-session migration is performed.
 
 Run authentication and launcher tests with Node.js 24, then build the image:
 
 ```sh
 npm ci --omit=dev
 npm test
-docker build -t codex-terminal:test .
+./scripts/build.sh --load -t codex-terminal:test .
 ```
 
 To run the native image smoke test locally after building:
@@ -198,8 +202,8 @@ docker run --rm -v "$(pwd)/scripts/smoke.mjs:/tmp/smoke.mjs:ro" \
   codex-terminal:test node /tmp/smoke.mjs
 ```
 
-Before release, check Android Chrome and iOS Safari on physical devices: open and close the keyboard, rotate the screen, use touch keys, scroll, copy/paste, and switch sessions. Verify a real app and its live reload WebSocket through `/apps/3000/`.
+Before release, check Android Chrome and iOS Safari on physical devices: open and close the keyboard, rotate the screen, use touch keys, scroll, copy/paste, and create, rename, close, and switch tmux windows from both touch controls and Ctrl+B bindings. Connect a second browser to verify the shared view. Verify a real app and its live reload WebSocket through `/apps/3000/`.
 
 To generate a password hash from a local checkout, run `node app/hash-password.mjs`.
 
-GitHub Actions runs the tests before building and publishing images tagged `latest` and with the commit SHA. Images target amd64 and arm64. Builds run on pushes to `main` that change app code, tests, smoke scripts, dependency manifests, the Dockerfile, `.dockerignore`, or the build workflow, plus weekly and on manual dispatch. CI also smoke-tests both architectures for native PTY startup, session lifecycle, reconnect persistence, gateway routing, and shutdown with login enabled and disabled. README and documentation image changes do not trigger builds.
+GitHub Actions runs the tests before building and publishing images tagged `latest` and with the commit SHA. Images target amd64 and arm64. Builds run on pushes to `main` that change app code, tests, smoke scripts, dependency manifests, the Dockerfile, `tmux.conf`, `.dockerignore`, or the build workflow, plus weekly and on manual dispatch. CI also smoke-tests both architectures for native PTY startup, snapshots, input/output, resize, tmux window lifecycle, shared views, reconnect persistence, gateway HTTP/WebSocket routing, and shutdown with login enabled and disabled. README and documentation image changes do not trigger builds.

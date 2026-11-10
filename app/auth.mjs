@@ -38,25 +38,6 @@ button{margin-top:24px;background:#b8e7ce;color:#10251b;font-weight:600;cursor:p
 <button type="submit">Sign in</button></form></main></html>`;
 }
 
-// Canonicalize defensively before forwarding to Express's case-insensitive routes.
-// Reject malformed targets rather than allowing an alternate parser to route them.
-function restrictedRoute(target) {
-  try {
-    if (!target.startsWith('/') || target.startsWith('//')) return 'invalid';
-    let path = target.split('?')[0];
-    for (let i = 0; i < 8; i++) {
-      const decoded = decodeURIComponent(path);
-      if (decoded === path) break;
-      path = decoded;
-      if (i === 7) return 'invalid';
-    }
-    path = new URL(path.replaceAll('\\', '/'), 'http://localhost').pathname.toLowerCase();
-    if (/^\/preview(?:\/|$)/.test(path)) return 'preview';
-    if (/^\/api\/update(?:\/|$)/.test(path)) return 'update';
-  } catch { return 'invalid'; }
-  return null;
-}
-
 export function createAuthServer({ username, passwordHash, upstreamPort = 7682, now = Date.now, sessionMs = SESSION_MS, appPorts = new Set() } = {}) {
   const requireAuth = Boolean(username);
   const sessions = new Map();
@@ -156,9 +137,6 @@ export function createAuthServer({ username, passwordHash, upstreamPort = 7682, 
     }
     const route = appRoute(req.url, appPorts);
     if (!authenticated(req)) return reply(res, 303, '', { Location: route && !route.invalid ? `/login?next=${encodeURIComponent(req.url)}` : '/login' });
-    const restricted = restrictedRoute(req.url);
-    if (restricted === 'update') return reply(res, 403, JSON.stringify({ error: 'Recreate the container from an updated image to update TermBeam.' }), { 'Content-Type': 'application/json' });
-    if (restricted) return reply(res, 404, 'Not found.');
     if (route?.invalid) return reply(res, 404, 'App not found.');
     if (route?.redirect) {
       const query = req.url.indexOf('?');
@@ -182,7 +160,7 @@ export function createAuthServer({ username, passwordHash, upstreamPort = 7682, 
       return;
     }
     const route = appRoute(req.url, appPorts);
-    if (restrictedRoute(req.url) || route?.invalid || route?.redirect) {
+    if (route?.invalid || route?.redirect) {
       socket.end('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n');
       return;
     }
