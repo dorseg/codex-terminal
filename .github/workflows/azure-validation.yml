@@ -1,0 +1,99 @@
+name: Validate Azure deployment example
+
+on:
+  pull_request:
+    paths:
+      - 'infra/azure/**'
+      - 'docs/azure-deployment.md'
+      - '.github/workflows/azure-validation.yml'
+  push:
+    paths:
+      - 'infra/azure/**'
+      - 'docs/azure-deployment.md'
+      - '.github/workflows/azure-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Check deployment helpers and shell syntax
+        run: |
+          python3 -m unittest discover -s infra/azure -p 'test_*.py' -v
+          python3 infra/azure/vm/manage_vm.py --help
+          bash -n infra/azure/vm/configure.sh infra/azure/vm/boot-guards.sh infra/azure/vm/domain.sh
+          sh -n infra/azure/vm/network-rules.sh infra/azure/runtime-check.sh
+      - name: Test the application gateway against its pinned dependencies
+        run: |
+          npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+          node --test test/*.test.mjs
+      - name: Compile infrastructure without Azure credentials
+        run: az bicep build --file infra/azure/vm/main.bicep --outfile /tmp/codex-terminal-vm.json
+
+  container-policies:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Resolve the published upstream image to a digest
+        id: upstream
+        run: |
+          python3 - <<'PY'
+          import os, sys
+          sys.path.insert(0, 'infra/azure')
+          from common import Deployment
+          example = object.__new__(Deployment)
+          example.config, example.state = {}, {}
+          image = example.image()
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('image=' + image + '\n')
+          print('Testing published upstream image:', image)
+          PY
+      - name: Load the same AppArmor profile used by the VM
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq apparmor apparmor-utils
+          sudo apparmor_parser -r infra/azure/vm/apparmor.profile
+      - name: Check inner sandbox and native terminal sessions under the VM policies
+        env:
+          TERMINAL_IMAGE: ${{ steps.upstream.outputs.image }}
+        run: |
+          check_root=$(mktemp -d)
+          trap 'sudo rm -rf "$check_root"' EXIT
+          mkdir -p "$check_root/workspace" "$check_root/config"
+          printf '%s\n' 'sandbox_mode = "workspace-write"' 'approval_policy = "on-request"' > "$check_root/config/config.toml"
+          sudo chown -R 1000:1000 "$check_root"
+          docker run --rm --user 1000:1000 --cap-drop ALL --pids-limit 512 \
+            --memory 1280m --memory-swap 1280m --cpus 0.9 \
+            --security-opt no-new-privileges:true \
+            --security-opt seccomp="$GITHUB_WORKSPACE/infra/azure/vm/seccomp.json" \
+            --security-opt apparmor=codex-terminal \
+            -v "$check_root/workspace:/workspace" \
+            -v "$check_root/config:/home/node/.codex" \
+            -v "$GITHUB_WORKSPACE/scripts/smoke.mjs:/tmp/smoke.mjs:ro" \
+            "$TERMINAL_IMAGE" sh -ceu '
+              test "$(id -u)" = 1000
+              codex sandbox -- /bin/sh -c "echo SANDBOX_OK > /workspace/.sandbox-check"
+              test "$(cat /workspace/.sandbox-check)" = SANDBOX_OK
+              touch /home/node/.codex/.outside-control
+              if codex sandbox -- /bin/sh -c "touch /home/node/.codex/.must-not-exist"; then
+                echo "Inner sandbox unexpectedly wrote outside the workspace" >&2
+                exit 1
+              fi
+              test ! -e /home/node/.codex/.must-not-exist
+              node /tmp/smoke.mjs
+            '

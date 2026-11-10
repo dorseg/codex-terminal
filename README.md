@@ -39,6 +39,8 @@ The terminal opens without a browser login by default. See [Optional terminal lo
 
 ## Remote access
 
+For a personal Azure VM with HTTPS, Microsoft Entra ID authentication restricted to your account, and persistent storage, follow the [step-by-step Azure deployment guide](docs/azure-deployment.md).
+
 For remote access, **configure Cloudflare Access** with an identity restriction and MFA **before** publishing a Cloudflare Tunnel route to `http://DOCKER_HOST_IP:7681`. Never forward the raw port on your router. Cloudflare Access does not protect the local published port, so restrict local access with firewall/network rules as appropriate.
 
 ## Unraid installation

@@ -4,3 +4,7 @@
 *.log
 
 node_modules
+
+# Deployment inputs must never enter the application image.
+**/.azure
+infra
