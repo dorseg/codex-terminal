@@ -10,6 +10,7 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - 'Dockerfile'
+      - 'tmux.conf'
       - '.dockerignore'
       - '.github/workflows/docker.yml'
   schedule:
@@ -64,7 +65,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           pull: true
-          no-cache: true
+          no-cache-filters: remobi
           tags: |
             ${{ steps.image.outputs.name }}:latest
             ${{ steps.image.outputs.name }}:${{ github.sha }}
