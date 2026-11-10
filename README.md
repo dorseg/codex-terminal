@@ -10,6 +10,8 @@ Remobi provides a browser view of the shared tmux session `main`, starting Bash 
 
 Use Remobi's touch controls or standard tmux shortcuts: press **Ctrl+B**, release, then **C** to create a window, **N/P** to switch, **,** to rename, or **&** to close (confirm with **Y**). Swipe left/right on mobile to switch windows. Mouse support is enabled and the tmux status bar appears at the top by default.
 
+tmux retains up to 10,000 lines of scrollback per pane and renumbers windows when one closes. Below 80 terminal columns, the status bar hides the session name, hostname, and clock, and truncates window names to 10 characters. Wider terminals display the full status bar.
+
 The Docker image is available at `ghcr.io/dorseg/codex-terminal:latest`.
 
 ## Docker installation
