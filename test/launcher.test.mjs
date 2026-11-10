@@ -64,7 +64,7 @@ for (const customHome of [true, false]) test('launcher sets CLI, cwd, private en
   const info = await run.ready();
   const config = join(run.dir, customHome ? 'config' : '.codex', 'remobi', 'remobi.config.js');
   assert.deepEqual(info.args, ['serve', '--config', config, '--host', '127.0.0.1', '--port', '7682', '--', 'tmux', 'new-session', '-A', '-s', 'main', '-c', '/workspace', '/bin/bash']);
-  assert.match(await readFile(config, 'utf8'), /export default/);
+  assert.equal(await readFile(config, 'utf8'), await readFile(new URL('../app/remobi.config.js', import.meta.url), 'utf8'));
   assert.equal(info.cwd, '/workspace');
   for (const key of ['user', 'password', 'hash', 'tmux', 'pane']) assert.equal(info[key], undefined);
   assert.match(await readFile(join(config, '..', '..', 'AGENTS.md'), 'utf8'), /Codex Terminal web app environment/);
