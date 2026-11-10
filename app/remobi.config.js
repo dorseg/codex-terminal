@@ -7,11 +7,11 @@ const shortcut = (id, label, description, key) => ({
 export default {
   drawer: {
     buttons: (defaults) => [
+      shortcut('codex', 'Codex', 'Choose how to start Codex', 20),
       shortcut('ai-usage', 'AI Usage', 'Show remaining Codex quota', 15),
-      shortcut('scratch', 'Quick Shell', 'Open a temporary shell', 17),
       shortcut('diff', 'Diff', 'Review local or committed Git changes', 18),
       shortcut('ports', 'Ports', 'Check configured app previews', 19),
-      shortcut('codex', 'Codex', 'Choose how to start Codex', 20),
+      shortcut('scratch', 'Quick Shell', 'Open a temporary shell', 17),
       ...defaults,
     ],
   },
