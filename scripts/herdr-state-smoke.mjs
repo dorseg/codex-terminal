@@ -25,10 +25,10 @@ const cli = (...args) => {
 };
 const snapshot = () => cli('api','snapshot').snapshot;
 let client;
-async function attach() {
+async function attach(cols = 120, rows = 40) {
   // util-linux script provides a real terminal while keeping this test portable.
   const quote = value => "'"+value.replaceAll("'", "'\\''")+"'";
-  client = spawn('script', ['-qefc', `stty cols 120 rows 40; exec ${quote(binary)} --session main`, '/dev/null'], { env, cwd: '/workspace', stdio: ['pipe','pipe','pipe'] });
+  client = spawn('script', ['-qefc', `stty cols ${cols} rows ${rows}; exec ${quote(binary)} --session main`, '/dev/null'], { env, cwd: '/workspace', stdio: ['pipe','pipe','pipe'] });
   client.stdout.resume(); client.stderr.resume();
   await until(() => snapshot().panes.length > 0, 'client attach');
 }
@@ -77,12 +77,18 @@ try {
   } else ({ original, pane, before } = JSON.parse(await readFile(join(dir, 'expected.json'), 'utf8')));
   if (phase !== 'save') {
   env.PATH = join(dir,'bin')+':'+env.PATH;
-  await attach();
+  // Reattaching at a different viewport must preserve the saved split structure.
+  await attach(100, 30);
   await until(() => snapshot().tabs.length === before.tabs.length,'layout restore');
   const after = snapshot();
   assert.deepEqual(after.tabs.map(t=>t.label),before.tabs.map(t=>t.label));
   assert.equal(after.panes.length, before.panes.length);
-  assert.deepEqual(after.layouts.map(layout=>layout.splits), before.layouts.map(layout=>layout.splits));
+  // Rectangles change with viewport size and may still reflect headless geometry.
+  const structure = state => state.layouts.map(layout => ({
+    tab: layout.tab_id,
+    splits: layout.splits.map(({ id, direction, ratio }) => ({ id, direction, ratio })),
+  }));
+  assert.deepEqual(structure(after), structure(before));
   assert.equal(after.panes.find(p=>p.pane_id === original.pane_id).cwd,'/tmp');
   cli('pane','run',original.pane_id, 'printf "SHELL_RESTART_%s\\n" "${ORDINARY_SHELL_SENTINEL-unset}"');
   await until(() => cli('pane','read',original.pane_id).text?.includes('SHELL_RESTART_unset'),'ordinary shell restarts');
