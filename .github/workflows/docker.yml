@@ -12,14 +12,6 @@ on:
       - 'Dockerfile'
       - '.dockerignore'
       - '.github/workflows/docker.yml'
-  pull_request:
-    paths:
-      - 'app/**'
-      - 'test/**'
-      - 'scripts/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - '.github/workflows/docker.yml'
   schedule:
     - cron: '23 3 * * 0'
   workflow_dispatch:
@@ -29,8 +21,7 @@ permissions:
   packages: write
 
 jobs:
-  test:
-    timeout-minutes: 3
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -47,15 +38,6 @@ jobs:
       - name: Test gateway and launcher
         timeout-minutes: 2
         run: npm test
-
-  build:
-    if: github.event_name != 'pull_request'
-    needs: test
-    timeout-minutes: 30
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
