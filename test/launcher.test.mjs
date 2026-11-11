@@ -6,14 +6,22 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { hashPassword } from '../app/password.mjs';
 
-async function launch(t, { mode = 'normal', customHome = true, existingConfig = false, conflict = false, correctLink = false } = {}) {
+async function launch(t, { mode = 'normal', customHome = true, customXdg = false, existingConfig = false, conflict = false, correctLink = false } = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'remobi-launcher-'));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  // Fixtures inherit launcher stdio; kill descendants too, even after an assertion fails.
+  let child;
+  t.after(async () => {
+    if (child?.pid) {
+      try { process.kill(-child.pid, 'SIGKILL'); }
+      catch (error) { if (error.code !== 'ESRCH') throw error; }
+    }
+    await rm(dir, { recursive: true, force: true });
+  });
   const fixture = join(dir, 'fixture.mjs');
   await writeFile(fixture, `
-console.log(JSON.stringify({ args:process.argv.slice(2), cwd:process.env.TEST_CWD, session:process.env.HERDR_SESSION, config:process.env.HERDR_CONFIG_PATH, socket:process.env.HERDR_SOCKET_PATH, workspace:process.env.HERDR_WORKSPACE_ID, sty:process.env.STY, zellij:process.env.ZELLIJ, tmux:process.env.TMUX, pane:process.env.TMUX_PANE, user:process.env.AUTH_USERNAME, password:process.env.AUTH_PASSWORD, hash:process.env.AUTH_PASSWORD_HASH }));
 if (process.env.TEST_MODE === 'exit') process.exit(7);
 for (const signal of ['SIGTERM','SIGINT']) process.on(signal,()=>{console.log(signal);if(process.env.TEST_MODE !== 'stubborn')process.exit(0)});
+console.log(JSON.stringify({ args:process.argv.slice(2), cwd:process.env.TEST_CWD, session:process.env.HERDR_SESSION, config:process.env.HERDR_CONFIG_PATH, socket:process.env.HERDR_SOCKET_PATH, workspace:process.env.HERDR_WORKSPACE_ID, sty:process.env.STY, zellij:process.env.ZELLIJ, tmux:process.env.TMUX, pane:process.env.TMUX_PANE, user:process.env.AUTH_USERNAME, password:process.env.AUTH_PASSWORD, hash:process.env.AUTH_PASSWORD_HASH }));
 setInterval(()=>{},1000);
 `);
   const preload = join(dir, 'preload.mjs');
@@ -42,7 +50,7 @@ syncBuiltinESMExports();
 const listen = Server.prototype.listen;
 Server.prototype.listen = function(port, ...args) { return listen.call(this, port === 7681 ? 0 : port, ...args); };
 `);
-  const env = { ...process.env, HOME: dir, APP_PORTS: '', AUTH_USERNAME: 'alice', AUTH_PASSWORD: '', AUTH_PASSWORD_HASH: await hashPassword('secret'), STY: 'old-screen', ZELLIJ: '1', HERDR_WORKSPACE_ID: 'old-workspace', HERDR_SESSION: 'wrong', HERDR_SOCKET_PATH: '/wrong', TMUX: '/inherited', TMUX_PANE: '%42', TEST_MODE: mode };
+  const env = { ...process.env, HOME: dir, XDG_CONFIG_HOME: join(dir, customXdg ? 'xdg-config' : '.config'), APP_PORTS: '', AUTH_USERNAME: 'alice', AUTH_PASSWORD: '', AUTH_PASSWORD_HASH: await hashPassword('secret'), STY: 'old-screen', ZELLIJ: '1', HERDR_WORKSPACE_ID: 'old-workspace', HERDR_SESSION: 'wrong', HERDR_SOCKET_PATH: '/wrong', TMUX: '/inherited', TMUX_PANE: '%42', TEST_MODE: mode };
   if (customHome) env.CODEX_HOME = join(dir, 'config'); else delete env.CODEX_HOME;
   if (existingConfig) {
     await mkdir(join(env.CODEX_HOME, 'herdr'), { recursive: true });
@@ -53,12 +61,11 @@ Server.prototype.listen = function(port, ...args) { return listen.call(this, por
   await writeFile(join(dir,'config/remobi/remobi.config.js'), 'legacy untouched');
   if(correctLink) {
     await mkdir(join(dir, 'config/herdr'), {recursive:true});
-    await mkdir(join(dir, '.config'), {recursive:true});
-    await symlink(join(dir,'config/herdr'), join(dir,'.config/herdr'));
+    await mkdir(env.XDG_CONFIG_HOME, {recursive:true});
+    await symlink(join(dir,'config/herdr'), join(env.XDG_CONFIG_HOME,'herdr'));
   }
-  if(conflict) await mkdir(join(dir, '.config/herdr'), {recursive:true});
-  const child = spawn(process.execPath, ['--import', preload, resolve('app/start.mjs')], { env });
-  t.after(() => child.kill('SIGKILL'));
+  if(conflict) await mkdir(join(env.XDG_CONFIG_HOME, 'herdr'), {recursive:true});
+  child = spawn(process.execPath, ['--import', preload, resolve('app/start.mjs')], { env, detached: true });
   let output = '', stderr = '';
   child.stdout.on('data', data => { output += data; });
   child.stderr.on('data', data => { stderr += data; });
@@ -74,15 +81,15 @@ Server.prototype.listen = function(port, ...args) { return listen.call(this, por
   return { child, dir, ready, exited, output: () => output, stderr: () => stderr };
 }
 
-for (const customHome of [true, false]) test('launcher sets CLI, cwd, private environment and config, customHome=' + customHome, { timeout: 10000 }, async t => {
-  const run = await launch(t, { customHome });
+for (const { customHome, customXdg } of [{customHome:true}, {customHome:false}, {customHome:true,customXdg:true}]) test('launcher sets CLI, cwd, private environment and config: ' + JSON.stringify({customHome,customXdg}), { timeout: 10000 }, async t => {
+  const run = await launch(t, { customHome, customXdg });
   const info = await run.ready();
   const config = join(run.dir, customHome ? 'config' : '.codex', 'herdr', 'remobi.config.js');
   assert.deepEqual(info.args, ['serve', '--config', config, '--host', '127.0.0.1', '--port', '7682', '--', 'herdr', '--session', 'main']);
   assert.equal(await readFile(config, 'utf8'), await readFile(new URL('../app/remobi.config.js', import.meta.url), 'utf8'));
   assert.equal(info.session, 'main');
   assert.equal(info.config, join(config, '..', 'config.toml'));
-  assert.equal(await readlink(join(run.dir, '.config/herdr')), join(config, '..'));
+  assert.equal(await readlink(join(run.dir, customXdg ? 'xdg-config/herdr' : '.config/herdr')), join(config, '..'));
   assert.equal(await readFile(join(config, '..', 'config.toml'), 'utf8'), await readFile(new URL('../app/herdr.toml', import.meta.url), 'utf8'));
   assert.equal(info.cwd, '/workspace');
   for (const key of ['user', 'password', 'hash', 'tmux', 'pane', 'socket', 'workspace', 'sty', 'zellij']) assert.equal(info[key], undefined);
