@@ -5,7 +5,7 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 
-for (const [choice, yolo] of [['n', false], ['y', true], ['', null]]) test('Codex chooser dispatch: '+(choice || 'cancel'), async t => {
+for (const [choice, yolo] of [['n', false], ['y', true], ['', null]]) test('Codex chooser dispatch: '+(choice || 'cancel'), { timeout: 10000 }, async t => {
   const dir = await mkdtemp(join(tmpdir(),'herdr-popup-'));
   t.after(() => rm(dir,{recursive:true,force:true}));
   const preload = join(dir,'preload.mjs');
@@ -17,13 +17,14 @@ cp.execFileSync = (command,args) => {
 }; syncBuiltinESMExports();`);
   const cwd = "/workspace/a'b $(literal)";
   const child = spawn(process.execPath,['--import',preload,resolve('app/popup.mjs'),'codex'],{env:{...process.env,HERDR_ACTIVE_WORKSPACE_ID:'w2',HERDR_ACTIVE_PANE_CWD:cwd}});
-  let output='';
+  t.after(() => child.kill('SIGKILL'));
+  let output='', stderr='';
   child.stdout.on('data', data => {
     output+=data;
     if(output.includes('cancel: ') && !child.stdin.writableEnded) child.stdin.end(choice+'\n');
   });
-  child.stderr.resume();
-  assert.equal(await new Promise(resolve => child.on('exit',resolve)),0);
+  child.stderr.on('data', data => { stderr += data; });
+  assert.equal(await new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', resolve); }), 0, stderr || output);
   const calls=[...output.matchAll(/CALL:([^\n]+)/g)].map(match=>JSON.parse(match[1]));
   if(yolo === null) assert.deepEqual(calls,[]);
   else {
