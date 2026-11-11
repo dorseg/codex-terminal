@@ -4,15 +4,19 @@
 
 # Codex Terminal
 
-A compact Debian Bookworm Slim-based container with Codex CLI, Remobi, tmux, Git, and Node.js. No desktop required. The browser UI is exposed on port 7681.
+A compact Debian Bookworm Slim-based container with Codex CLI, Remobi, Herdr, Git, and Node.js. The browser UI is exposed on port 7681.
 
-Remobi provides a browser view of the shared tmux session `main`, starting Bash in `/workspace`. tmux windows act as terminal tabs. All connected browsers share the same active window, terminal output, input, and size. Browser disconnects preserve running sessions while the container stays running.
+Remobi provides a shared browser view of Herdr session `main`, starting Bash in `/workspace`. Connected browsers share the same terminal input, output, view, and size. Browser disconnects preserve running processes while the container stays running. Tabs appear at the top; narrow screens use Herdr's standard mobile layout. Mouse capture is enabled.
 
-Use Remobi's touch controls or standard tmux shortcuts: press **Ctrl+B**, release, then **C** to create a window, **N/P** to switch, **,** to rename, or **&** to close (confirm with **Y**). Swipe left/right on mobile to switch windows. Mouse support is enabled and the tmux status bar appears at the bottom by default.
+Press **Ctrl+B**, release, then **C** to create a tab (confirm its name with Enter), **N/P** to switch, **Shift+T** to rename, or **Shift+X** to close a tab. **V** and **-** split panes, **Z** toggles zoom, **W** opens workspaces, **B** toggles the sidebar, **E** opens scrollback, **X** closes a pane, and **?** opens help. The More drawer provides these controls. Swipe left/right switches tabs.
 
-tmux retains up to 10,000 lines of scrollback per pane and renumbers windows when one closes. The status bar uses a dark background with a blue session label, a yellow active window, and a teal clock.
+Five custom popups are available in **More**, or after **Ctrl+B** with **F5–F9**:
 
-New Remobi configs add five shortcuts to **More**. **AI Usage** shows the 5-hour and weekly Codex quota when available. **Quick Shell** opens a temporary shell in the active pane's directory. **Diff** shows local Git changes or the committed branch diff when the working tree is clean. **Ports** lists configured `/apps/<port>/` paths and checks whether each app responds. **Codex** opens a menu to start Codex normally or with `--yolo`, which bypasses approvals and sandboxing. Either choice opens a new tmux window in the active pane's directory. Existing configs are preserved on upgrade. To add the buttons to an existing setup, merge the [bundled drawer entries](app/remobi.config.js) into your config and restart the container.
+- **F5 AI Usage:** remaining 5-hour and weekly Codex quota; Enter closes.
+- **F6 Quick Shell:** temporary Bash in the underlying pane's directory; exit closes.
+- **F7 Diff:** local Git changes, or committed branch changes if clean, in the underlying directory.
+- **F8 Ports:** configured app preview paths and response status; Enter closes.
+- **F9 Codex:** choose normal or YOLO mode, or Enter to cancel. A choice creates and focuses a new tab in the originating workspace and directory. YOLO bypasses approvals and sandboxing.
 
 The Docker image is available at `ghcr.io/dorseg/codex-terminal:latest`.
 
@@ -107,7 +111,7 @@ Apps may bind to `127.0.0.1` inside the container. Each app must serve its full 
 
 ### Automatic Codex instructions
 
-At startup, the container adds a managed web app section to the global `AGENTS.md` in `CODEX_HOME` (default `/home/node/.codex`). It lists the configured `APP_PORTS` and explains the proxy prefix, app configuration, live reload, and keeping servers running in tmux. You can ask Codex to “build and run a task tracker” without repeating the port and proxy setup.
+At startup, the container adds a managed web app section to the global `AGENTS.md` in `CODEX_HOME` (default `/home/node/.codex`). It lists the configured `APP_PORTS` and explains the proxy prefix, app configuration, live reload, and keeping servers running in dedicated Herdr tabs or panes. You can ask Codex to “build and run a task tracker” without repeating the port and proxy setup.
 
 Existing personal instructions are preserved. If a nonempty global `AGENTS.override.md` exists, the managed section is placed there instead so Codex loads it. The section refreshes on container startup, including when proxying is disabled. The Codex config directory must be writable. Start a new Codex session to load updated instructions; project instructions can override these defaults. See the [official instruction discovery guide](https://developers.openai.com/codex/guides/agents-md).
 
@@ -176,9 +180,12 @@ Use the default container command for terminal login to work. HTTP is supported 
 ## Persistence and updates
 
 - The process runs as the unprivileged `node` user (UID 1000), not as root.
-- Remobi attaches to tmux session `main`, creating it if absent. Bash starts in `/workspace`. Running shells and app servers survive browser disconnects.
-- An editable `CODEX_HOME/remobi/remobi.config.js` (default `/home/node/.codex/remobi/remobi.config.js`) is created only when absent and passed explicitly to Remobi. Edit its default export to customize controls, gestures, and appearance; restart the container to apply changes. See the [Remobi configuration reference](https://github.com/connorads/remobi#configuration). System tmux defaults load before user configuration; use `~/.tmux.conf` or `~/.config/tmux/tmux.conf` to override them. Persist those files separately if needed.
-- Container restarts **do** terminate tmux and running Codex processes.
+- Remobi attaches to Herdr session `main`. The gateway remains on port 7681 and Remobi listens on loopback port 7682.
+- Editable `CODEX_HOME/herdr/config.toml` and `CODEX_HOME/herdr/remobi.config.js` are seeded only when absent. Restart after editing. Herdr's standard config directory (`~/.config/herdr`, or under `XDG_CONFIG_HOME`) links to this persistent directory. A conflicting directory or link prevents startup; move it aside yourself after reviewing its contents.
+- Herdr stores session state, sockets, and layout snapshots under the existing Codex volume. Layouts, directories, and focus return after a restart. Ordinary shells restart fresh; arbitrary app servers need restarting. Persistent pane-screen history stays disabled.
+- Startup installs or updates Herdr's official Codex integration, preserving unrelated settings and hooks. It enables Codex hooks and records native conversation identity. Eligible conversations resume automatically after the browser attaches; missing or unsupported session references become fresh shells. Other agents' integrations remain user-installed. See [native restore](https://herdr.dev/tui/docs/session-state/) and [integrations](https://herdr.dev/tui/docs/integrations/).
+- Shutdown closes gateway connections, requests a graceful Herdr session stop, and terminates Remobi, with a six-second launcher deadline.
+- Existing project and Codex volumes remain usable. Legacy terminal configs, including `CODEX_HOME/remobi/remobi.config.js`, are ignored and left untouched. No live-session migration or compatibility mode is provided. Finish active work before recreating the container.
 - Code and Codex credentials survive container recreation because they reside in mapped volumes.
 - New images are published weekly and when app or build changes land on `main`. They include updates to the base image, OS packages, Codex CLI, and the stable `remobi@latest` release resolved at build time.
 - There is no migration of live sessions. Finish active tasks before cutover; existing volumes need no data migration.
@@ -187,9 +194,9 @@ Use the default container command for terminal login to work. HTTP is supported 
 
 ## Development
 
-The image uses `node:24-bookworm-slim`. Remobi is installed separately as `remobi@latest`; its resolved version is printed during the build and is never saved to the repository manifest or lockfile. Native dependencies compile in the build stage; compiler tools are excluded from the runtime image. Remobi listens on `127.0.0.1:7682` behind the existing gateway on port 7681.
+The image uses `node:24-bookworm-slim`. A dedicated stage downloads the latest stable Herdr binary for amd64 or arm64, verifies its published GitHub asset SHA-256 digest, and prints its version. Missing downloads or checksums fail the build. Only the binary is copied from that stage. Python is included at runtime for the official Codex hook. Remobi is installed separately as `remobi@latest`; its resolved version is printed during the build and is never saved to the repository manifest or lockfile. Native dependencies compile in the build stage; compiler tools are excluded from the runtime image. Remobi listens on `127.0.0.1:7682` behind the existing gateway on port 7681.
 
-Use `scripts/build.sh` for local builds. It invokes BuildKit with `--no-cache-filter remobi`, so every invocation resolves and installs the stable npm latest tag even with cached dependencies and runtime layers. CI uses the same stage filter. Dockerfiles cannot declare an intrinsically uncached stage; direct Buildx invocations must also supply `--no-cache-filter remobi` (or `--no-cache`). No runtime update or live-session migration is performed.
+Use `scripts/build.sh` for local builds. It invokes BuildKit with `--no-cache-filter remobi,herdr`, so every invocation resolves and installs the stable Herdr release and npm latest tag even with cached dependencies and runtime layers. CI uses the same stage filter. Dockerfiles cannot declare an intrinsically uncached stage; direct Buildx invocations must also supply `--no-cache-filter remobi,herdr` (or `--no-cache`). No runtime update or live-session migration is performed.
 
 Run authentication and launcher tests with Node.js 24, then build the image:
 
@@ -204,10 +211,12 @@ To run the native image smoke test locally after building:
 ```sh
 docker run --rm -v "$(pwd)/scripts/smoke.mjs:/tmp/smoke.mjs:ro" \
   codex-terminal:test node /tmp/smoke.mjs
+docker run --rm -v "$(pwd)/scripts/herdr-state-smoke.mjs:/tmp/herdr-state-smoke.mjs:ro" \
+  codex-terminal:test node /tmp/herdr-state-smoke.mjs
 ```
 
-Before release, check Android Chrome and iOS Safari on physical devices: open and close the keyboard, rotate the screen, use touch keys, scroll, copy/paste, and create, rename, close, and switch tmux windows from both touch controls and Ctrl+B bindings. Connect a second browser to verify the shared view. Verify a real app and its live reload WebSocket through `/apps/3000/`.
+Before release, check Android Chrome and iOS Safari on physical devices: open and close the keyboard, rotate the screen, use touch keys, scroll, copy/paste, and create, rename, close, and switch Herdr tabs from both touch controls and Ctrl+B bindings. Check top tabs at desktop width and the default narrow-screen layout. Verify restoration using a real Codex conversation before release. Connect a second browser to verify the shared view. Verify a real app and its live reload WebSocket through `/apps/3000/`.
 
 To generate a password hash from a local checkout, run `node app/hash-password.mjs`.
 
-GitHub Actions runs the tests before building and publishing images tagged `latest` and with the commit SHA. Images target amd64 and arm64. Builds run on pushes to `main` that change app code, tests, smoke scripts, dependency manifests, the Dockerfile, `tmux.conf`, `.dockerignore`, or the build workflow, plus weekly and on manual dispatch. CI also smoke-tests both architectures for native PTY startup, snapshots, input/output, resize, tmux window lifecycle, shared views, reconnect persistence, gateway HTTP/WebSocket routing, and shutdown with login enabled and disabled. README and documentation image changes do not trigger builds.
+GitHub Actions runs unit tests, then builds and publishes a commit-tagged image for amd64 and arm64. Both architectures run the gateway/browser-protocol smoke test and native persistence checks before the image is promoted to `latest`. Pushes affecting app code, tests, scripts, manifests, Dockerfile, or the workflow trigger builds; weekly and manual builds are also available. CI refreshes both Herdr and Remobi stages. README and documentation image changes do not trigger builds.

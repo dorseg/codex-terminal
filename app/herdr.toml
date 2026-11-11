@@ -1,0 +1,45 @@
+# Editable defaults. See https://herdr.dev/tui/docs/configuration/
+onboarding = false
+[terminal]
+default_shell = "/bin/bash"
+new_cwd = "current"
+[ui]
+tab_bar_position = "top"
+mouse_capture = true
+[session]
+resume_agents_on_restore = true
+[experimental]
+pane_history = false
+[update]
+version_check = false
+manifest_check = false
+[[keys.command]]
+key = "prefix+f5"
+type = "popup"
+command = "node /opt/codex-terminal/popup.mjs usage"
+width = "95%"
+height = "60%"
+[[keys.command]]
+key = "prefix+f6"
+type = "popup"
+command = "/bin/bash"
+width = "95%"
+height = "90%"
+[[keys.command]]
+key = "prefix+f7"
+type = "popup"
+command = "/bin/bash /opt/codex-terminal/diff.sh"
+width = "95%"
+height = "90%"
+[[keys.command]]
+key = "prefix+f8"
+type = "popup"
+command = "node /opt/codex-terminal/popup.mjs ports"
+width = "95%"
+height = "60%"
+[[keys.command]]
+key = "prefix+f9"
+type = "popup"
+command = "node /opt/codex-terminal/popup.mjs codex"
+width = "95%"
+height = "60%"
