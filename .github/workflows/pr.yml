@@ -1,0 +1,93 @@
+name: Validate pull requests
+
+on:
+  pull_request:
+    paths:
+      - 'app/**'
+      - 'test/**'
+      - 'scripts/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - '.github/workflows/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-validation-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install dependencies
+        run: npm ci --omit=dev
+      - name: Test gateway and launcher
+        timeout-minutes: 2
+        run: npm test
+
+  image:
+    name: Image smoke (${{ matrix.architecture }})
+    needs: unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-qemu-action@v3
+        if: matrix.architecture == 'arm64'
+        with:
+          platforms: arm64
+      - uses: docker/setup-buildx-action@v3
+      - name: Build local validation image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/${{ matrix.architecture }}
+          load: true
+          push: false
+          pull: true
+          no-cache-filters: remobi,herdr
+          tags: codex-terminal:pr-test
+      - name: Smoke-test native PTY and gateway
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          docker run --rm --platform linux/${{ matrix.architecture }} \
+            -v "$PWD/scripts/smoke.mjs:/tmp/smoke.mjs:ro" \
+            codex-terminal:pr-test node /tmp/smoke.mjs
+      - name: Check native restart and volume-backed container recreation
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          image=codex-terminal:pr-test
+          arch="linux/${{ matrix.architecture }}"
+          docker run --rm --platform "$arch" \
+            -v "$PWD/scripts/herdr-state-smoke.mjs:/tmp/herdr-state-smoke.mjs:ro" \
+            "$image" node /tmp/herdr-state-smoke.mjs
+          volume="herdr-pr-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ matrix.architecture }}"
+          docker volume create "$volume"
+          trap 'docker volume rm "$volume"' EXIT
+          docker run --rm --platform "$arch" --user root -v "$volume:/smoke-state" "$image" chown node:node /smoke-state
+          for phase in save restore; do
+            docker run --rm --platform "$arch" -v "$volume:/smoke-state" \
+              -e SMOKE_STATE_HOME=/smoke-state -e SMOKE_STATE_PHASE="$phase" \
+              -v "$PWD/scripts/herdr-state-smoke.mjs:/tmp/herdr-state-smoke.mjs:ro" \
+              "$image" node /tmp/herdr-state-smoke.mjs
+          done
