@@ -219,4 +219,6 @@ Before release, check Android Chrome and iOS Safari on physical devices: open an
 
 To generate a password hash from a local checkout, run `node app/hash-password.mjs`.
 
-GitHub Actions runs unit tests, then builds and publishes a commit-tagged image for amd64 and arm64. Both architectures run the gateway/browser-protocol smoke test and native persistence checks before the image is promoted to `latest`. Pushes affecting app code, tests, scripts, manifests, Dockerfile, or the workflow trigger builds; weekly and manual builds are also available. CI refreshes both Herdr and Remobi stages. README and documentation image changes do not trigger builds.
+Pull requests run unit tests and build local amd64 and arm64 images for gateway, terminal, persistence, and container-recreation smoke checks. These checks use read-only repository permissions and do not publish images. Superseded PR runs are canceled automatically.
+
+On main, scheduled, and manual release runs, GitHub Actions runs unit tests, then builds and publishes a commit-tagged image for amd64 and arm64. Both architectures run the gateway/browser-protocol smoke test and native persistence checks before the image is promoted to `latest`. Pushes affecting app code, tests, scripts, manifests, Dockerfile, or the workflow trigger builds; weekly and manual builds are also available. CI refreshes both Herdr and Remobi stages. README and documentation image changes do not trigger builds.
