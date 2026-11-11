@@ -36,7 +36,8 @@ jobs:
         run: npm ci --omit=dev
 
       - name: Test gateway and launcher
-        run: node --test test/*.test.mjs
+        timeout-minutes: 2
+        run: npm test
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
