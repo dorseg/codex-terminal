@@ -103,7 +103,9 @@ if(process.argv[2] === 'app-server') {
           return (await request('/')).ok;
         } catch { return false; }
       }, 'Remobi startup');
-      const clientPage = await (await request('/')).text();
+      const clientResponse = await request('/');
+      assert.match(clientResponse.headers.get('content-security-policy'), /(?:^|;)\s*img-src 'self' data: blob:;/);
+      const clientPage = await clientResponse.text();
       assert.match(clientPage, /<html/i);
       assert.ok(clientPage.includes('function installTerminalCopy('), 'image includes the copy client patch');
       assert.ok(clientPage.includes('function installImageAttachments('), 'image includes the attachment client patch');
