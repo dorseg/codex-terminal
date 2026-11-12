@@ -103,7 +103,9 @@ if(process.argv[2] === 'app-server') {
           return (await request('/')).ok;
         } catch { return false; }
       }, 'Remobi startup');
-      assert.match(await (await request('/')).text(), /<html/i);
+      const clientPage = await (await request('/')).text();
+      assert.match(clientPage, /<html/i);
+      assert.ok(clientPage.includes('function installTerminalCopy('), 'image includes the copy client patch');
       const terminal = await connect();
       terminal.send({ type: 'resize', cols: 100, rows: 30 });
       // Remobi's first snapshot can arrive before Herdr and its shell are ready.
@@ -161,6 +163,19 @@ if(process.argv[2] === 'app-server') {
       const split = snapshot().focused_pane_id;
       await until(() => terminal.visible(prompt(split)), 'remaining split rendered');
       assert.equal(snapshot().focused_tab_id, created.tab_id, 'splits stay in the selected tab');
+      // Two panes with distinct output: copy must use the single focused pane.
+      const neighbor = snapshot().panes.find(pane => pane.tab_id === created.tab_id && pane.pane_id !== split);
+      assert.ok(neighbor, 'copy fixture has a neighboring pane');
+      herdr('pane', 'run', neighbor.pane_id, "printf 'COPY_OTHER_%s\\n' PANE");
+      herdr('pane', 'run', split, "printf 'COPY_FOCUSED_%s\\n' PANE");
+      await until(() => terminal.visible('COPY_FOCUSED_PANE'), 'copy fixture output');
+      const copied = await request('/api/terminal/copy');
+      assert.equal(copied.status, 200);
+      assert.equal(copied.headers.get('cache-control'), 'no-store');
+      const capture = await copied.json();
+      assert.equal(capture.paneId, split);
+      assert.ok(capture.text.includes('COPY_FOCUSED_PANE'));
+      assert.ok(!capture.text.includes('COPY_OTHER_PANE'));
       herdr('pane', 'run', split, 'cd /tmp');
       await until(() => snapshot().panes.find(p => p.pane_id === split).foreground_cwd === '/tmp', 'pane directory');
       // Quick Shell inherits the underlying pane directory.

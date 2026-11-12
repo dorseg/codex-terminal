@@ -15,7 +15,7 @@ try {
 const args = ['serve', '--config', config, '--host', '127.0.0.1', '--port', '7682', '--', 'herdr', '--session', 'main'];
 const cli = fileURLToPath(new URL('../cli.mjs', import.meta.resolve('remobi')));
 const child = spawn(process.execPath, [cli, ...args], { cwd: '/workspace', stdio: 'inherit', env: childEnv });
-const server = createAuthServer({ ...auth, appPorts: ports });
+const server = createAuthServer({ ...auth, appPorts: ports, terminalEnv: childEnv });
 let shuttingDown = false;
 function stop(signal = 'SIGTERM') {
   if (shuttingDown) return;
