@@ -140,6 +140,18 @@ Start the project with `npm run dev`, then open `/apps/5173/` on the terminal's 
 
 When terminal login is enabled, app routes share the login and return to the requested app after sign-in. Without terminal login, allowlisted apps are accessible directly. Only run trusted apps: they share the terminal's browser origin and session privileges. The proxy strips the terminal session cookie from upstream requests and filters attempts to set that reserved cookie, but this does not isolate apps from the terminal. Follow the existing remote access guidance when using a public domain.
 
+## Attaching images
+
+Open **More → Images** on desktop or mobile. Choose one or more PNG, JPEG or WebP images (up to **10 MiB each**), drop images over the terminal, or paste a copied image over it. Ordinary text paste keeps working. The mobile picker does not force camera capture. Export HEIC/HEIF photos as JPEG, or use a screenshot.
+
+The dialog shows local thumbnail previews and uploads images sequentially. Failed uploads have a Retry button; successful uploads remain available when another fails. Close / cancel or Escape cancels pending work and releases previews. Completed uploads stay in `/workspace/.codex-terminal/uploads/` until deleted. The existing `/workspace` volume mapping preserves them across container recreation. The **Saved images** list includes earlier uploads. Use **Delete** beside one image or **Delete all saved images** to clean up. Deleting files makes their existing references unusable. There is no public image-serving route.
+
+**Insert into current pane** uses xterm paste to append a single-line instruction referencing the saved file to the current prompt, without pressing Enter. It targets the pane focused **when you insert**; browsers share terminal focus. Review the prompt before submitting. No Codex detection, launch, or conversation restart is needed. Insertion requires a connected terminal. The saved reference is selectable and has a Copy button, including while disconnected.
+
+**Paste image** reads the clipboard directly from the tap. Programmatic clipboard reading requires HTTPS (or a trusted localhost context), browser support, and permission. If reading is unavailable, denied, or contains no supported image, use Choose images. Native image paste also works when the browser supplies an image file. See [MDN Clipboard.read](https://developer.mozilla.org/en-US/docs/Web/API/Clipboard/read).
+
+The gateway accepts one raw image per `POST /api/terminal/images`, with a matching request Origin and the existing optional login cookie. It validates the declared MIME type against the file signature, bounds the body even without Content-Length, and returns `201` JSON with absolute `path`, detected `mimeType`, and byte `size`. Generated filenames, exclusive writes and symlink-resistant directory access protect upload storage. `GET /api/terminal/images` lists saved uploads. `DELETE /api/terminal/images/<generated-filename>` deletes one image; `DELETE /api/terminal/images` deletes all saved uploads. Both delete actions require the existing optional login and a matching Origin, and only remove generated regular files inside the uploads directory. Errors return JSON (400 invalid filename, 404 missing image, 401 expired login, 403 origin, 405 method, 413 size, 415 format, 503 storage).
+
 ## Optional terminal login
 
 Set both environment variables to require a browser login before accessing the terminal:
@@ -220,14 +232,17 @@ docker run --rm -v "$(pwd)/scripts/herdr-state-smoke.mjs:/tmp/herdr-state-smoke.
 The optional browser interaction check uses Playwright Chromium and WebKit:
 
 ```sh
-npm install --no-save playwright
+npm install --no-save playwright @xterm/xterm
 npx playwright install --with-deps chromium webkit
 node scripts/mobile-copy-browser.mjs
+node scripts/image-attachments-browser.mjs
 ```
 
-It covers panel selection ranges, clipboard completion and denial, loading, retry, cancellation, rotation dimensions, focus, and event isolation. Physical devices are still required to verify native selection handles and menus, safe areas, and software keyboard behavior.
+The image checks use real xterm paste and cover desktop Chromium and mobile-sized Chromium/WebKit: picker, previews, sequential uploads, retry, cancellation, native paste/drop, ordinary text paste, clipboard success/denial/unavailability, disconnected copy fallback, insertion without submission, rotation, URL cleanup, and dialog event isolation.
 
-Before release, check Android Chrome and iOS Safari on physical devices: open and close the keyboard, rotate the screen, use touch keys, scroll, copy/paste, and create, rename, close, and switch Herdr tabs from both touch controls and Ctrl+B bindings. For **More → Copy**, test HTTPS clipboard success and denial, native selection and Copy, scrolling, rotation, safe areas, no forced keyboard, retry/cancellation, and output continuing during selection. Confirm panel gestures never type or scroll the terminal. Check top tabs at desktop width and the default narrow-screen layout. Verify restoration using a real Codex conversation before release. Connect a second browser to verify the shared view. Verify a real app and its live reload WebSocket through `/apps/3000/`.
+The copy check covers panel selection ranges, clipboard completion and denial, loading, retry, cancellation, rotation dimensions, focus, and event isolation. Physical devices are still required to verify native selection handles and menus, safe areas, and software keyboard behavior.
+
+Before release, check Android Chrome and iOS Safari on physical devices: open and close the keyboard, rotate the screen, use touch keys, scroll, copy/paste, and create, rename, close, and switch Herdr tabs from both touch controls and Ctrl+B bindings. For **More → Copy**, test HTTPS clipboard success and denial, native selection and Copy, scrolling, rotation, safe areas, no forced keyboard, retry/cancellation, and output continuing during selection. For **More → Images**, verify native photo selection and clipboard permission behavior over HTTPS on Android Chrome and iOS Safari. In a running Codex conversation, upload and insert an image reference, submit the prompt yourself, and confirm Codex opens the file. Recreate the container with the same workspace volume and confirm the file remains. Confirm panel gestures never type or scroll the terminal. Check top tabs at desktop width and the default narrow-screen layout. Verify restoration using a real Codex conversation before release. Connect a second browser to verify the shared view. Verify a real app and its live reload WebSocket through `/apps/3000/`.
 
 To generate a password hash from a local checkout, run `node app/hash-password.mjs`.
 

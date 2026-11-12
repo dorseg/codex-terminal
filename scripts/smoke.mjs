@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { once } from 'node:events';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -106,6 +106,21 @@ if(process.argv[2] === 'app-server') {
       const clientPage = await (await request('/')).text();
       assert.match(clientPage, /<html/i);
       assert.ok(clientPage.includes('function installTerminalCopy('), 'image includes the copy client patch');
+      assert.ok(clientPage.includes('function installImageAttachments('), 'image includes the attachment client patch');
+      const imageBytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWWQAAAAASUVORK5CYII=', 'base64');
+      const uploaded = await request('/api/terminal/images', { method: 'POST', headers: { 'content-type': 'image/png' }, body: imageBytes });
+      assert.equal(uploaded.status, 201);
+      const image = await uploaded.json();
+      assert.match(image.path, /^\/workspace\/\.codex-terminal\/uploads\/[a-f0-9-]+\.png$/);
+      assert.deepEqual(await readFile(image.path), imageBytes);
+      assert.equal((await request('/api/terminal/images', { method: 'POST', headers: { origin: 'https://foreign.example', 'content-type': 'image/png' }, body: imageBytes })).status, 403);
+      if (authenticated) assert.equal((await request('/api/terminal/images', { method: 'POST', headers: { cookie: '', 'content-type': 'image/png' }, body: imageBytes })).status, 401);
+      assert.ok((await (await request('/api/terminal/images')).json()).images.some(saved => saved.path === image.path));
+      const removed = await request('/api/terminal/images/' + image.path.split('/').pop(), { method: 'DELETE' });
+      assert.equal(removed.status, 200);
+      assert.deepEqual(await removed.json(), { deleted: 1 });
+      await assert.rejects(readFile(image.path), { code: 'ENOENT' });
+
       const terminal = await connect();
       terminal.send({ type: 'resize', cols: 100, rows: 30 });
       // Remobi's first snapshot can arrive before Herdr and its shell are ready.

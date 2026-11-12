@@ -17,7 +17,7 @@ RUN npm install --no-save --package-lock=false --build-from-source remobi@latest
     && node -p "'Installed remobi@' + require('./node_modules/remobi/package.json').version" \
     && npm cache clean --force
 COPY scripts/patch-remobi-client.mjs /tmp/remobi-patch/scripts/
-COPY app/mobile-input.js app/mobile-copy.js /tmp/remobi-patch/app/
+COPY app/mobile-input.js app/mobile-copy.js app/image-attachments.js /tmp/remobi-patch/app/
 RUN node /tmp/remobi-patch/scripts/patch-remobi-client.mjs node_modules/remobi/dist/client.iife.js
 
 FROM node:24-bookworm-slim
@@ -34,6 +34,7 @@ COPY --from=remobi /opt/codex-terminal /opt/codex-terminal
 COPY app /opt/codex-terminal
 COPY --from=herdr /usr/local/bin/herdr /usr/local/bin/herdr
 
+RUN mkdir -p /workspace && chown node:node /workspace
 USER node
 WORKDIR /workspace
 EXPOSE 7681
