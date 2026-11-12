@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { saveImage, listImages, deleteImages, IMAGE_DIRECTORY } from './images.mjs';
 import { captureTerminal } from './terminal-copy.mjs';
 import { appRoute } from './apps.mjs';
 import { readFileSync } from 'node:fs';
@@ -39,7 +40,7 @@ button{margin-top:24px;background:#b8e7ce;color:#10251b;font-weight:600;cursor:p
 <button type="submit">Sign in</button></form></main></html>`;
 }
 
-export function createAuthServer({ username, passwordHash, upstreamPort = 7682, now = Date.now, sessionMs = SESSION_MS, appPorts = new Set(), terminalEnv = process.env, capture = captureTerminal } = {}) {
+export function createAuthServer({ username, passwordHash, upstreamPort = 7682, now = Date.now, sessionMs = SESSION_MS, appPorts = new Set(), terminalEnv = process.env, capture = captureTerminal, imageDirectory = IMAGE_DIRECTORY } = {}) {
   const requireAuth = Boolean(username);
   const sessions = new Map();
   const failures = new Map();
@@ -58,7 +59,10 @@ export function createAuthServer({ username, passwordHash, upstreamPort = 7682, 
   // Compare hosts rather than schemes: TLS can terminate at the existing reverse proxy.
   function sameOrigin(req, required = false) {
     if (!req.headers.origin) return !required;
-    try { return new URL(req.headers.origin).host === req.headers.host; } catch { return false; }
+    try {
+      const origin = new URL(req.headers.origin);
+      return ['http:', 'https:'].includes(origin.protocol) && origin.origin === req.headers.origin && origin.host === req.headers.host;
+    } catch { return false; }
   }
   function reply(res, status, body = '', headers = {}) {
     res.writeHead(status, { 'Cache-Control': 'no-store', 'Content-Type': 'text/html; charset=utf-8',
@@ -135,6 +139,24 @@ export function createAuthServer({ username, passwordHash, upstreamPort = 7682, 
       const token = randomBytes(32).toString('hex');
       sessions.set(token, now() + sessionMs);
       return reply(res, 303, '', { Location: next, 'Set-Cookie': `${COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/` });
+    }
+    const imageRoute = req.url.split('?')[0];
+    if (imageRoute === '/api/terminal/images' || imageRoute.startsWith('/api/terminal/images/')) {
+      const json = (status, value, headers = {}) => reply(res, status, JSON.stringify(value), { 'Content-Type': 'application/json; charset=utf-8', ...headers });
+      if (!authenticated(req)) return json(401, { error: 'Your login has expired. Sign in again, then retry.' });
+      if (!sameOrigin(req, req.method !== 'GET')) return json(403, { error: 'Image changes require a matching request Origin.' });
+      const collection = imageRoute === '/api/terminal/images';
+      const name = collection ? undefined : imageRoute.slice('/api/terminal/images/'.length);
+      if (!(collection ? ['GET', 'POST', 'DELETE'] : ['DELETE']).includes(req.method)) return json(405, { error: 'Use GET to list, POST to upload, or DELETE to remove saved images.' }, { Allow: collection ? 'GET, POST, DELETE' : 'DELETE' });
+      try {
+        if (req.method === 'GET') return json(200, await listImages({ directory: imageDirectory }));
+        if (req.method === 'DELETE') return json(200, await deleteImages({ directory: imageDirectory, name }));
+        return json(201, await saveImage(req, { directory: imageDirectory, disconnected: () => req.aborted || res.destroyed }));
+      } catch (error) {
+        req.resume();
+        if (!res.destroyed) return json(error.status || 503, { error: error.status ? error.message : 'Image request interrupted. Please retry.' });
+      }
+      return;
     }
     if (req.url.split('?')[0] === '/api/terminal/copy') {
       const json = (status, value, headers = {}) => reply(res, status, JSON.stringify(value), { 'Content-Type': 'application/json; charset=utf-8', ...headers });
