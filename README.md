@@ -10,6 +10,8 @@ Remobi provides a shared browser view of Herdr session `main`, starting Bash in 
 
 Press **Ctrl+B**, release, then **C** to create a tab (confirm its name with Enter), **N/P** to switch, **Shift+T** to rename, or **Shift+X** to close a tab. **V** and **-** split panes, **Z** toggles zoom, **W** opens workspaces, **B** toggles the sidebar, **E** opens scrollback, **X** closes a pane, and **?** opens help. The More drawer provides these controls. Swipe left/right switches tabs.
 
+On phones, open **☰ More → Copy** to select text with native selection handles and the Copy menu, or tap **Copy all**. The full-screen panel captures the latest 500 available terminal rows from the focused pane, joining soft-wrapped lines. The snapshot stays fixed while output continues; **Retry** or reopening captures fresh output. Only history Herdr currently retains is available, without neighboring panes, other tabs, or complete conversation transcripts. If automatic clipboard access is unavailable, Copy all selects the text for native Copy. **Close** returns to the terminal; the existing Paste control is unchanged.
+
 Five custom popups are available in **More**, or after **Ctrl+B** with **F5–F9**:
 
 - **F5 AI Usage:** remaining 5-hour and weekly Codex quota; Enter closes.
@@ -215,7 +217,17 @@ docker run --rm -v "$(pwd)/scripts/herdr-state-smoke.mjs:/tmp/herdr-state-smoke.
   codex-terminal:test node /tmp/herdr-state-smoke.mjs
 ```
 
-Before release, check Android Chrome and iOS Safari on physical devices: open and close the keyboard, rotate the screen, use touch keys, scroll, copy/paste, and create, rename, close, and switch Herdr tabs from both touch controls and Ctrl+B bindings. Check top tabs at desktop width and the default narrow-screen layout. Verify restoration using a real Codex conversation before release. Connect a second browser to verify the shared view. Verify a real app and its live reload WebSocket through `/apps/3000/`.
+The optional browser interaction check uses Playwright Chromium and WebKit:
+
+```sh
+npm install --no-save playwright
+npx playwright install --with-deps chromium webkit
+node scripts/mobile-copy-browser.mjs
+```
+
+It covers panel selection ranges, clipboard completion and denial, loading, retry, cancellation, rotation dimensions, focus, and event isolation. Physical devices are still required to verify native selection handles and menus, safe areas, and software keyboard behavior.
+
+Before release, check Android Chrome and iOS Safari on physical devices: open and close the keyboard, rotate the screen, use touch keys, scroll, copy/paste, and create, rename, close, and switch Herdr tabs from both touch controls and Ctrl+B bindings. For **More → Copy**, test HTTPS clipboard success and denial, native selection and Copy, scrolling, rotation, safe areas, no forced keyboard, retry/cancellation, and output continuing during selection. Confirm panel gestures never type or scroll the terminal. Check top tabs at desktop width and the default narrow-screen layout. Verify restoration using a real Codex conversation before release. Connect a second browser to verify the shared view. Verify a real app and its live reload WebSocket through `/apps/3000/`.
 
 To generate a password hash from a local checkout, run `node app/hash-password.mjs`.
 

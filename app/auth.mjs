@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { captureTerminal } from './terminal-copy.mjs';
 import { appRoute } from './apps.mjs';
 import { readFileSync } from 'node:fs';
 import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
@@ -38,7 +39,7 @@ button{margin-top:24px;background:#b8e7ce;color:#10251b;font-weight:600;cursor:p
 <button type="submit">Sign in</button></form></main></html>`;
 }
 
-export function createAuthServer({ username, passwordHash, upstreamPort = 7682, now = Date.now, sessionMs = SESSION_MS, appPorts = new Set() } = {}) {
+export function createAuthServer({ username, passwordHash, upstreamPort = 7682, now = Date.now, sessionMs = SESSION_MS, appPorts = new Set(), terminalEnv = process.env, capture = captureTerminal } = {}) {
   const requireAuth = Boolean(username);
   const sessions = new Map();
   const failures = new Map();
@@ -134,6 +135,13 @@ export function createAuthServer({ username, passwordHash, upstreamPort = 7682, 
       const token = randomBytes(32).toString('hex');
       sessions.set(token, now() + sessionMs);
       return reply(res, 303, '', { Location: next, 'Set-Cookie': `${COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/` });
+    }
+    if (req.url.split('?')[0] === '/api/terminal/copy') {
+      const json = (status, value, headers = {}) => reply(res, status, JSON.stringify(value), { 'Content-Type': 'application/json; charset=utf-8', ...headers });
+      if (!authenticated(req)) return json(401, { error: 'Your login has expired. Sign in again, then retry.' });
+      if (req.method !== 'GET') return json(405, { error: 'Use GET to capture terminal text.' }, { Allow: 'GET' });
+      try { return json(200, await capture({ env: terminalEnv })); }
+      catch (error) { return json(503, { error: error.message }); }
     }
     const route = appRoute(req.url, appPorts);
     if (!authenticated(req)) return reply(res, 303, '', { Location: route && !route.invalid ? `/login?next=${encodeURIComponent(req.url)}` : '/login' });
