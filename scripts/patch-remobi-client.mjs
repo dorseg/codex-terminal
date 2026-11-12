@@ -1,7 +1,10 @@
 import { readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 const bundlePath = process.argv[2];
 const bundle = readFileSync(bundlePath, 'utf8');
+const serverPath = process.argv[3] || join(dirname(bundlePath), 'cli.mjs');
+const server = readFileSync(serverPath, 'utf8');
 const mobileInput = readFileSync(new URL('../app/mobile-input.js', import.meta.url), 'utf8');
 // Locate Remobi's call to open xterm, where its public textarea API is ready.
 const openTerminal = /\b([\w$]+)\.open\([\w$]+\)(?=,document\.documentElement\.style\.background=)/g;
@@ -23,4 +26,12 @@ if ([...patched.matchAll(socketState)].length !== 1 ||
 patched = patched.replace(drawerReady, (match, drawer) => match.replace(',await ', `,installTerminalCopy(${drawer}),installImageAttachments(${drawer}),await `));
 const mobileCopy = readFileSync(new URL('../app/mobile-copy.js', import.meta.url), 'utf8');
 const imageAttachments = readFileSync(new URL('../app/image-attachments.js', import.meta.url), 'utf8');
+// Remobi's default policy blocks the blob URLs used by local thumbnails.
+// Validate both files before modifying either integration point.
+const imagePolicy = /img-src 'self' data:;/g;
+if ([...server.matchAll(imagePolicy)].length !== 1) {
+  throw new Error('Could not locate the unique Remobi image security policy for image previews.');
+}
+const patchedServer = server.replace(imagePolicy, "img-src 'self' data: blob:;");
+writeFileSync(serverPath, patchedServer);
 writeFileSync(bundlePath, `${mobileInput}\n${mobileCopy}\n${imageAttachments}\n${patched}`);

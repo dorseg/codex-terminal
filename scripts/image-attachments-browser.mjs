@@ -12,8 +12,8 @@ const script = await readFile(new URL('../app/image-attachments.js', import.meta
 const xtermPath = process.env.XTERM_SCRIPT || require.resolve('@xterm/xterm');
 const xterm = await readFile(xtermPath, 'utf8');
 const css = await readFile(resolve(dirname(xtermPath), '../css/xterm.css'), 'utf8');
-const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWWQAAAAASUVORK5CYII=', 'base64');
-const html = `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}body{margin:0;overflow:hidden}#terminal{width:100%;height:200px;overflow:hidden}</style><div id="terminal"></div><button id="more">More</button><div id="drawer"><div id="wt-drawer-grid"></div></div><script src="/xterm.js"></script><script>${script}
+const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==', 'base64');
+const html = `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}body{margin:0;overflow:hidden}#terminal{width:100%;height:200px;overflow:hidden}</style><div id="terminal"></div><button id="more">More</button><div id="drawer"><div id="wt-drawer-grid"></div></div><script src="/xterm.js"></script><script nonce="image-browser-check">${script}
 window.originalClipboard=navigator.clipboard;
 window.terminal=new Terminal({cols:30,rows:8});terminal.open(document.querySelector('#terminal'));
 window.promptText='existing prompt';window.sent=[];window.focusedPane='one';window.inserted=[];
@@ -26,7 +26,14 @@ window.created=0;window.revoked=0;const create=URL.createObjectURL.bind(URL),rev
 URL.createObjectURL=(...args)=>{created++;return create(...args)};URL.revokeObjectURL=url=>{revoked++;revoke(url)};
 window.image=()=>new File([Uint8Array.from(atob('${png.toString('base64')}'),c=>c.charCodeAt(0))],'paste.png',{type:'image/png'});
 </script>`;
-const server = http.createServer((req, res) => { res.setHeader('Content-Type', req.url === '/xterm.js' ? 'text/javascript' : 'text/html'); res.end(req.url === '/xterm.js' ? xterm : html); });
+// Match Remobi's policy, including the image-preview allowance installed by the
+// build patch. Keep CSP enabled so a blocked thumbnail cannot pass unnoticed.
+const imageCsp = "default-src 'self'; script-src 'self' 'nonce-image-browser-check'; style-src 'self' 'unsafe-inline' https:; font-src 'self' https:; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'";
+const server = http.createServer((req, res) => {
+  res.setHeader('Content-Security-Policy', req.url.includes('blocked-preview=1') ? imageCsp.replace(' data: blob:;', ' data:;') : imageCsp);
+  res.setHeader('Content-Type', req.url === '/xterm.js' ? 'text/javascript' : 'text/html');
+  res.end(req.url === '/xterm.js' ? xterm : html);
+});
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 try {
   for (const [engine, mobile] of [['chromium', false], ['chromium', true], ['webkit', true]].filter(([engine]) => !process.env.BROWSER_ENGINES || process.env.BROWSER_ENGINES.split(',').includes(engine))) {
@@ -56,6 +63,16 @@ try {
         try { await route.fulfill({ status: failure ? 503 : 201, json: failure ? { error: 'Storage busy. Retry.' } : image }); } catch { /* cancellation */ }
         active--;
       });
+      // Negative control reproduces the original policy blocking blob images.
+      await page.goto(`http://127.0.0.1:${server.address().port}/?blocked-preview=1`);
+      assert.equal(await page.evaluate(() => new Promise(resolve => {
+        const preview = new Image();
+        const url = URL.createObjectURL(image());
+        preview.onload = () => { URL.revokeObjectURL(url); resolve(true); };
+        preview.onerror = () => { URL.revokeObjectURL(url); resolve(false); };
+        preview.src = url;
+        document.body.append(preview);
+      })), false, 'the original policy blocks blob previews');
       await page.goto(`http://127.0.0.1:${server.address().port}`);
       const panel = page.locator('#terminal-images');
       const open = async () => {
@@ -72,6 +89,7 @@ try {
       await panel.locator('article').nth(1).getByRole('textbox').waitFor();
       assert.match(await panel.locator('article').first().textContent(), /Storage busy/);
       assert.equal(await panel.locator('img').count(), 2);
+      await page.waitForFunction(() => [...document.querySelectorAll('#terminal-images img')].every(preview => preview.complete && preview.naturalWidth === 1 && preview.naturalHeight === 1));
       await panel.getByRole('button', { name: 'Retry', exact: true }).click();
       await panel.locator('article').first().getByRole('textbox').waitFor();
       assert.equal(sequence, 3); assert.equal(maxActive, 1, 'uploads are sequential');
