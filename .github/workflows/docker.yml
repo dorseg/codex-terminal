@@ -20,9 +20,55 @@ permissions:
   contents: read
   packages: write
 
+# Serialize releases so candidate selection and promotion cannot race.
+concurrency:
+  group: docker-publish
+  cancel-in-progress: false
+
 jobs:
-  build:
+  candidates:
     runs-on: ubuntu-latest
+    outputs:
+      default-tag: ${{ steps.tags.outputs.default-tag }}
+      browser-tag: ${{ steps.tags.outputs.browser-tag }}
+    steps:
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Select unused candidate tags
+        id: tags
+        shell: bash
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          for variant in default browser; do
+            suffix=""
+            if [ "$variant" = browser ]; then suffix="-browser"; fi
+            tag="${GITHUB_SHA}${suffix}"
+            # Preserve commit tags on scheduled builds, manual builds and reruns.
+            if docker buildx imagetools inspect "$image:$tag" > /dev/null 2> /tmp/manifest-error; then
+              tag="${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}${suffix}"
+            elif ! grep -Eqi 'manifest unknown|not found|no such manifest' /tmp/manifest-error; then
+              cat /tmp/manifest-error >&2
+              exit 1
+            fi
+            echo "$variant-tag=$tag" >> "$GITHUB_OUTPUT"
+          done
+
+  build:
+    needs: candidates
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: default
+            tag: ${{ needs.candidates.outputs.default-tag }}
+          - variant: browser
+            tag: ${{ needs.candidates.outputs.browser-tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -62,23 +108,31 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          target: ${{ matrix.variant }}
           platforms: linux/amd64,linux/arm64
           push: true
           pull: true
-          no-cache-filters: remobi,herdr
+          no-cache-filters: remobi,herdr,browser
           tags: |
-            ${{ steps.image.outputs.name }}:${{ github.sha }}
+            ${{ steps.image.outputs.name }}:${{ matrix.tag }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.description=Minimal browser-based Codex CLI environment
 
   smoke:
-    timeout-minutes: 10
-    needs: build
+    timeout-minutes: 25
+    needs: [candidates, build]
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         architecture: [amd64, arm64]
+        variant: [default, browser]
+        include:
+          - variant: default
+            tag: ${{ needs.candidates.outputs.default-tag }}
+          - variant: browser
+            tag: ${{ needs.candidates.outputs.browser-tag }}
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
@@ -87,33 +141,15 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Smoke-test native PTY and gateway
+      - name: Validate unit suite, terminal, persistence and image variant
         shell: bash
         run: |
-          docker run --rm --platform linux/${{ matrix.architecture }} \
-            -v "$PWD/scripts/smoke.mjs:/tmp/smoke.mjs:ro" \
-            "ghcr.io/${GITHUB_REPOSITORY,,}:${GITHUB_SHA}" node /tmp/smoke.mjs
-      - name: Check native restart and volume-backed container recreation
-        shell: bash
-        run: |
-          image="ghcr.io/${GITHUB_REPOSITORY,,}:${GITHUB_SHA}"
-          arch="linux/${{ matrix.architecture }}"
-          docker run --rm --platform "$arch" \
-            -v "$PWD/scripts/herdr-state-smoke.mjs:/tmp/herdr-state-smoke.mjs:ro" \
-            "$image" node /tmp/herdr-state-smoke.mjs
-          volume="herdr-state-${GITHUB_RUN_ID}-${{ matrix.architecture }}"
-          docker volume create "$volume"
-          trap 'docker volume rm "$volume"' EXIT
-          docker run --rm --platform "$arch" --user root -v "$volume:/smoke-state" "$image" chown node:node /smoke-state
-          for phase in save restore; do
-            docker run --rm --platform "$arch" -v "$volume:/smoke-state" \
-              -e SMOKE_STATE_HOME=/smoke-state -e SMOKE_STATE_PHASE="$phase" \
-              -v "$PWD/scripts/herdr-state-smoke.mjs:/tmp/herdr-state-smoke.mjs:ro" \
-              "$image" node /tmp/herdr-state-smoke.mjs
-          done
+          sh scripts/image-smoke.sh \
+            "ghcr.io/${GITHUB_REPOSITORY,,}:${{ matrix.tag }}" \
+            '${{ matrix.architecture }}' '${{ matrix.variant }}'
 
   promote:
-    needs: smoke
+    needs: [candidates, smoke]
     runs-on: ubuntu-latest
     steps:
       - uses: docker/setup-buildx-action@v3
@@ -122,6 +158,9 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Promote validated commit to latest
+      - name: Promote both variants after every architecture passes
         shell: bash
-        run: docker buildx imagetools create --tag "ghcr.io/${GITHUB_REPOSITORY,,}:latest" "ghcr.io/${GITHUB_REPOSITORY,,}:${GITHUB_SHA}"
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          docker buildx imagetools create --tag "$image:latest" "$image:${{ needs.candidates.outputs.default-tag }}"
+          docker buildx imagetools create --tag "$image:browser" "$image:${{ needs.candidates.outputs.browser-tag }}"

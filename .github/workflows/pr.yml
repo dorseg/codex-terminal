@@ -38,14 +38,15 @@ jobs:
         run: npm test
 
   image:
-    name: Image smoke (${{ matrix.architecture }})
+    name: Image smoke (${{ matrix.variant }}, ${{ matrix.architecture }})
     needs: unit
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         architecture: [amd64, arm64]
+        variant: [default, browser]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -59,35 +60,13 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          target: ${{ matrix.variant }}
           platforms: linux/${{ matrix.architecture }}
           load: true
           push: false
           pull: true
-          no-cache-filters: remobi,herdr
+          no-cache-filters: remobi,herdr,browser
           tags: codex-terminal:pr-test
-      - name: Smoke-test native PTY and gateway
-        timeout-minutes: 10
-        shell: bash
-        run: |
-          docker run --rm --platform linux/${{ matrix.architecture }} \
-            -v "$PWD/scripts/smoke.mjs:/tmp/smoke.mjs:ro" \
-            codex-terminal:pr-test node /tmp/smoke.mjs
-      - name: Check native restart and volume-backed container recreation
-        timeout-minutes: 10
-        shell: bash
-        run: |
-          image=codex-terminal:pr-test
-          arch="linux/${{ matrix.architecture }}"
-          docker run --rm --platform "$arch" \
-            -v "$PWD/scripts/herdr-state-smoke.mjs:/tmp/herdr-state-smoke.mjs:ro" \
-            "$image" node /tmp/herdr-state-smoke.mjs
-          volume="herdr-pr-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ matrix.architecture }}"
-          docker volume create "$volume"
-          trap 'docker volume rm "$volume"' EXIT
-          docker run --rm --platform "$arch" --user root -v "$volume:/smoke-state" "$image" chown node:node /smoke-state
-          for phase in save restore; do
-            docker run --rm --platform "$arch" -v "$volume:/smoke-state" \
-              -e SMOKE_STATE_HOME=/smoke-state -e SMOKE_STATE_PHASE="$phase" \
-              -v "$PWD/scripts/herdr-state-smoke.mjs:/tmp/herdr-state-smoke.mjs:ro" \
-              "$image" node /tmp/herdr-state-smoke.mjs
-          done
+      - name: Validate unit suite, terminal, persistence and image variant
+        timeout-minutes: 20
+        run: sh scripts/image-smoke.sh codex-terminal:pr-test '${{ matrix.architecture }}' '${{ matrix.variant }}'

@@ -1,4 +1,4 @@
 #!/bin/sh
-# Refresh stable Herdr and Remobi releases even when other stages are cached.
+# Refresh stable Herdr, Remobi and browser tooling even with cached stages.
 set -eu
-exec docker buildx build "$@" --no-cache-filter remobi,herdr
+exec docker buildx build "$@" --no-cache-filter remobi,herdr,browser

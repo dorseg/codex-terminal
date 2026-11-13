@@ -20,7 +20,14 @@ Five custom popups are available in **More**, or after **Ctrl+B** with **F5–F9
 - **F8 Ports:** configured app preview paths and response status; Enter closes.
 - **F9 Codex:** choose normal or YOLO mode, or Enter to cancel. A choice creates and focuses a new tab in the originating workspace and directory. YOLO bypasses approvals and sandboxing.
 
-The Docker image is available at `ghcr.io/dorseg/codex-terminal:latest`.
+Both image variants support amd64 and arm64:
+
+| Image | Included tools |
+| --- | --- |
+| `ghcr.io/dorseg/codex-terminal:latest` | Compact terminal environment |
+| `ghcr.io/dorseg/codex-terminal:browser` | Terminal environment plus headless Chromium and global `playwright-cli` (`@playwright/cli`) |
+
+The browser variant uses Playwright-managed Chromium matching the installed CLI. Browser binaries live in `/opt/playwright-browsers`, outside the workspace and Codex volumes. Both variants use the same user, terminal services, entrypoint and port; no desktop service or extra port is needed.
 
 ## Docker installation
 
@@ -46,6 +53,8 @@ The Docker image is available at `ghcr.io/dorseg/codex-terminal:latest`.
    ```sh
    codex login --device-auth
    ```
+
+For browser automation, replace `:latest` with `:browser` in the Docker command. To switch an existing container, pull the desired tag and recreate it with the same volume mappings, `APP_PORTS`, and optional authentication variables.
 
 The terminal opens without a browser login by default. See [Optional terminal login](#optional-terminal-login) to require credentials.
 
@@ -73,6 +82,8 @@ For remote access, **configure Cloudflare Access** with an identity restriction 
    | Projects path | `/mnt/user/appdata/codex-terminal/projects` → `/workspace` (RW) |
    | Codex config path | `/mnt/user/appdata/codex-terminal/config` → `/home/node/.codex` (RW) |
    | Web UI (optional) | `http://[IP]:[PORT:7681]/` |
+
+   Choose `ghcr.io/dorseg/codex-terminal:browser` in **Repository** to include browser automation. Changing the tag keeps the same paths, port and authentication settings.
 
    To enable [optional terminal login](#optional-terminal-login), add `AUTH_USERNAME` and `AUTH_PASSWORD_HASH` as two **Variable** entries in the container settings. Paste the complete generated hash literally into `AUTH_PASSWORD_HASH`.
 
@@ -139,6 +150,21 @@ export default defineConfig({
 Start the project with `npm run dev`, then open `/apps/5173/` on the terminal's external URL. IP addresses and localhost are allowed by Vite by default. Vite's default live reload connects through the page's origin and base path; WebSocket upgrades are forwarded to the same app port. Remove conflicting custom live reload host/port settings that would direct the browser to the container's private address. See Vite's [base option](https://vite.dev/config/shared-options#base) and [server options](https://vite.dev/config/server-options) for your installed version.
 
 When terminal login is enabled, app routes share the login and return to the requested app after sign-in. Without terminal login, allowlisted apps are accessible directly. Only run trusted apps: they share the terminal's browser origin and session privileges. The proxy strips the terminal session cookie from upstream requests and filters attempts to set that reserved cookie, but this does not isolate apps from the terminal. Follow the existing remote access guidance when using a public domain.
+
+## Headless browser automation
+
+Use the `:browser` image to run the global agent CLI as the existing `node` user:
+
+```sh
+playwright-cli open https://example.com
+playwright-cli snapshot
+playwright-cli screenshot --filename=/workspace/example.png
+playwright-cli close
+```
+
+Inspect the snapshot for element references, then use commands such as `playwright-cli click e3`. For apps running in this container, open their loopback URL, for example `playwright-cli open http://127.0.0.1:3000/apps/3000/`. Local fixture automation works without external networking; Chromium is installed during the image build and needs no runtime download.
+
+Global defaults in `/home/node/.playwright/cli.config.json` select the installed Chromium executable and headless mode. The CLI's [supported configuration hierarchy](https://playwright.dev/agent-cli/configuration) merges global defaults, project `.playwright/cli.config.json` (or `--config`), `PLAYWRIGHT_MCP_*` environment variables, then command-line options. Project settings can override launch options; an alternative browser needs its own installed binary and an `executablePath` override. No skills are installed and no user project is initialized during the image build. See the [official CLI installation guide](https://playwright.dev/agent-cli/installation).
 
 ## Attaching images
 
@@ -210,7 +236,7 @@ Use the default container command for terminal login to work. HTTP is supported 
 
 The image uses `node:24-bookworm-slim`. A dedicated stage downloads the latest stable Herdr binary for amd64 or arm64, verifies its published GitHub asset SHA-256 digest, and prints its version. Missing downloads or checksums fail the build. Only the binary is copied from that stage. Python is included at runtime for the official Codex hook. Remobi is installed separately as `remobi@latest`; its resolved version is printed during the build and is never saved to the repository manifest or lockfile. Native dependencies compile in the build stage; compiler tools are excluded from the runtime image. Remobi listens on `127.0.0.1:7682` behind the existing gateway on port 7681.
 
-Use `scripts/build.sh` for local builds. It invokes BuildKit with `--no-cache-filter remobi,herdr`, so every invocation resolves and installs the stable Herdr release and npm latest tag even with cached dependencies and runtime layers. CI uses the same stage filter. Dockerfiles cannot declare an intrinsically uncached stage; direct Buildx invocations must also supply `--no-cache-filter remobi,herdr` (or `--no-cache`). No runtime update or live-session migration is performed.
+Use `scripts/build.sh` for local builds. It invokes BuildKit with `--no-cache-filter remobi,herdr,browser`, so every invocation resolves and installs the stable Herdr release, Remobi npm latest tag, and (for the browser target) `@playwright/cli@latest` plus matching Chromium even with cached dependencies and runtime layers. CI uses the same stage filter. The browser build prints the CLI, Playwright and Chromium versions and removes npm and apt caches. Dockerfiles cannot declare an intrinsically uncached stage; direct Buildx invocations must also supply `--no-cache-filter remobi,herdr,browser` (or `--no-cache`). No runtime update or live-session migration is performed.
 
 Run authentication and launcher tests with Node.js 24, then build the image:
 
@@ -218,6 +244,7 @@ Run authentication and launcher tests with Node.js 24, then build the image:
 npm ci --omit=dev
 npm test
 ./scripts/build.sh --load -t codex-terminal:test .
+./scripts/build.sh --target browser --load -t codex-terminal:browser .
 ```
 
 To run the native image smoke test locally after building:
@@ -229,7 +256,16 @@ docker run --rm -v "$(pwd)/scripts/herdr-state-smoke.mjs:/tmp/herdr-state-smoke.
   codex-terminal:test node /tmp/herdr-state-smoke.mjs
 ```
 
-The optional browser interaction check uses Playwright Chromium and WebKit:
+Run all container checks for either locally built variant (replace `amd64` with `arm64` when appropriate):
+
+```sh
+sh scripts/image-smoke.sh codex-terminal:test amd64 default
+sh scripts/image-smoke.sh codex-terminal:browser amd64 browser
+```
+
+These run the unit suite, gateway/terminal smoke and native persistence checks, including container recreation. The browser variant also opens a local fixture, reads its snapshot, clicks a control, checks the result, saves a nonempty PNG, and closes the session as UID 1000. It runs with `--network none` and mounted workspace and Codex volumes. The default variant is checked for absence of the added browser tooling.
+
+The optional terminal UI browser interaction check uses Playwright Chromium and WebKit:
 
 ```sh
 npm install --no-save playwright @xterm/xterm
@@ -246,6 +282,6 @@ Before release, check Android Chrome and iOS Safari on physical devices: open an
 
 To generate a password hash from a local checkout, run `node app/hash-password.mjs`.
 
-Pull requests run unit tests and build local amd64 and arm64 images for gateway, terminal, persistence, and container-recreation smoke checks. These checks use read-only repository permissions and do not publish images. Superseded PR runs are canceled automatically.
+Pull requests run unit tests and build both variants as local amd64 and arm64 images for gateway, terminal, persistence, and container-recreation smoke checks. These checks use read-only repository permissions and do not publish images. Superseded PR runs are canceled automatically.
 
-On main, scheduled, and manual release runs, GitHub Actions runs unit tests, then builds and publishes a commit-tagged image for amd64 and arm64. Both architectures run the gateway/browser-protocol smoke test and native persistence checks before the image is promoted to `latest`. Pushes affecting app code, tests, scripts, manifests, Dockerfile, or the workflow trigger builds; weekly and manual builds are also available. CI refreshes both Herdr and Remobi stages. README and documentation image changes do not trigger builds.
+On main, scheduled, and manual release runs, GitHub Actions runs unit tests, then builds and publishes immutable candidate tags `<sha>` and `<sha>-browser` for amd64 and arm64. When those commit tags already exist, fresh builds use `<sha>-<run-id>-<attempt>` and `<sha>-<run-id>-<attempt>-browser` so weekly updates and reruns preserve earlier candidates. Release runs are serialized to prevent candidate and promotion races. All four variant/architecture combinations run the unit suite, gateway/terminal and native persistence checks, with offline browser automation checked on both browser architectures. Both candidates must pass every check before promotion to `:latest` and `:browser`. Pushes affecting app code, tests, scripts, manifests, Dockerfile, or the workflow trigger builds; weekly and manual builds are also available. CI refreshes Herdr, Remobi and browser stages. README and documentation image changes do not trigger builds.
