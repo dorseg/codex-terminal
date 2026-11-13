@@ -9,7 +9,8 @@ RUN npm ci --omit=dev && npm cache clean --force
 FROM node:24-bookworm-slim AS herdr
 ARG TARGETARCH
 COPY scripts/install-herdr.mjs /tmp/install-herdr.mjs
-RUN node /tmp/install-herdr.mjs "$TARGETARCH" && herdr --version
+RUN --mount=type=secret,id=github_token \
+    node /tmp/install-herdr.mjs "$TARGETARCH" && herdr --version
 
 # Build with scripts/build.sh to refresh stable tooling releases.
 FROM dependencies AS remobi
