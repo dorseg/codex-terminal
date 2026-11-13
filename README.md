@@ -128,6 +128,8 @@ At startup, the container adds a managed web app section to the global `AGENTS.m
 
 Existing personal instructions are preserved. If a nonempty global `AGENTS.override.md` exists, the managed section is placed there instead so Codex loads it. The section refreshes on container startup, including when proxying is disabled. The Codex config directory must be writable. Start a new Codex session to load updated instructions; project instructions can override these defaults. See the [official instruction discovery guide](https://developers.openai.com/codex/guides/agents-md).
 
+The `:browser` variant also adds instructions telling Codex to use the installed headless `playwright-cli` to validate local web app flows, inspect snapshots, interact with controls, and capture screenshots. These explain the local app URLs and browser configuration overrides. Switching back to the compact image removes this browser guidance on startup while preserving personal instructions and the existing Codex volume.
+
 ### Vite example
 
 In a Vite project's `vite.config.js`:

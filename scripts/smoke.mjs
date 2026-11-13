@@ -103,6 +103,8 @@ if(process.argv[2] === 'app-server') {
           return (await request('/')).ok;
         } catch { return false; }
       }, 'Remobi startup');
+      const instructions = await readFile(join(config, 'AGENTS.md'), 'utf8');
+      assert.equal(instructions.includes('### Browser validation'), process.env.PLAYWRIGHT_BROWSERS_PATH === '/opt/playwright-browsers', 'startup instructions match the image variant');
       const clientResponse = await request('/');
       assert.match(clientResponse.headers.get('content-security-policy'), /(?:^|;)\s*img-src 'self' data: blob:;/);
       const clientPage = await clientResponse.text();

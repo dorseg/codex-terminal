@@ -51,3 +51,36 @@ test('instructions initialize a new config home and honor nonempty global overri
   assert.equal(installInstructions(new Set([8080]), config), path);
   assert.match(readFileSync(path, 'utf8'), /Allowed app ports: 8080/);
 });
+
+test('browser instructions refresh when switching variants with the same Codex volume', t => {
+  const dir = home(t);
+  const path = join(dir, 'AGENTS.md');
+  writeFileSync(path, 'Keep my project conventions.\n');
+  installInstructions(new Set([3000]), dir, true);
+  const browser = readFileSync(path, 'utf8');
+  assert.match(browser, /Browser validation/);
+  assert.match(browser, /playwright-cli open <local-url>/);
+  assert.match(browser, /http:\/\/127\.0\.0\.1:<port>\/apps\/<port>\//);
+  assert.match(browser, /headless automation/);
+  installInstructions(new Set([3000]), dir, true);
+  assert.equal(readFileSync(path, 'utf8'), browser);
+  installInstructions(new Set([5173]), dir, false);
+  const compact = readFileSync(path, 'utf8');
+  assert.doesNotMatch(compact, /Browser validation|playwright-cli/);
+  assert.match(compact, /^Keep my project conventions\.\n/);
+  assert.match(compact, /Allowed app ports: 5173/);
+  assert.equal(compact.match(/codex-terminal:apps:start/g).length, 1);
+});
+
+test('browser guidance honors global overrides and supports local testing without a public proxy', t => {
+  const dir = home(t);
+  const override = join(dir, 'AGENTS.override.md');
+  writeFileSync(override, 'My personal override.\n');
+  assert.equal(installInstructions(new Set(), dir, true), override);
+  const instructions = readFileSync(override, 'utf8');
+  assert.match(instructions, /^My personal override\.\n/);
+  assert.match(instructions, /proxying is disabled/);
+  assert.match(instructions, /Headless local testing works even when APP_PORTS is empty/);
+  installInstructions(new Set(), dir, false);
+  assert.doesNotMatch(readFileSync(override, 'utf8'), /Browser validation|playwright-cli/);
+});
