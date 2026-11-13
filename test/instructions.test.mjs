@@ -59,9 +59,9 @@ test('browser instructions refresh when switching variants with the same Codex v
   installInstructions(new Set([3000]), dir, true);
   const browser = readFileSync(path, 'utf8');
   assert.match(browser, /Browser validation/);
-  assert.match(browser, /playwright-cli open <local-url>/);
+  assert.match(browser, /use playwright-cli to validate relevant user flows/);
   assert.match(browser, /http:\/\/127\.0\.0\.1:<port>\/apps\/<port>\//);
-  assert.match(browser, /headless automation/);
+  assert.match(browser, /Headless Chromium and playwright-cli are installed/);
   installInstructions(new Set([3000]), dir, true);
   assert.equal(readFileSync(path, 'utf8'), browser);
   installInstructions(new Set([5173]), dir, false);
@@ -80,7 +80,7 @@ test('browser guidance honors global overrides and supports local testing withou
   const instructions = readFileSync(override, 'utf8');
   assert.match(instructions, /^My personal override\.\n/);
   assert.match(instructions, /proxying is disabled/);
-  assert.match(instructions, /Headless local testing works even when APP_PORTS is empty/);
+  assert.match(instructions, /Local testing works even when APP_PORTS is empty/);
   installInstructions(new Set(), dir, false);
   assert.doesNotMatch(readFileSync(override, 'utf8'), /Browser validation|playwright-cli/);
 });

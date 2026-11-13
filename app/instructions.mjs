@@ -18,11 +18,9 @@ export function installInstructions(ports, codexHome = process.env.CODEX_HOME ||
   const browser = browserAvailable ? `
 ### Browser validation
 
-- This image includes global playwright-cli (@playwright/cli) and matching Chromium, configured for headless automation as the node user. Use playwright-cli --help to discover commands. No browser download, project initialization, or skill installation is needed.
-- When creating or modifying a web app, use playwright-cli to validate the relevant user flows: open the page, inspect its snapshot, interact with controls, verify the result, and save a screenshot when useful. Report what was tested and any checks that could not run.
-- Open the app directly inside the container at http://127.0.0.1:<port>/apps/<port>/ when it uses the proxy base path, or its actual local URL otherwise. Headless local testing works even when APP_PORTS is empty; public previews still require the app proxy configuration above.
-- Typical commands: playwright-cli open <local-url>, playwright-cli snapshot, playwright-cli click <ref-from-snapshot>, playwright-cli screenshot --filename=/workspace/screenshot.png, and playwright-cli close. Close the browser session after validation while leaving the app running for the user.
-- Global browser defaults live in /home/node/.playwright/cli.config.json. Project .playwright/cli.config.json (or --config), PLAYWRIGHT_MCP_* variables, and command-line options can override those defaults.
+- Headless Chromium and playwright-cli are installed. Use playwright-cli --help for commands.
+- When creating or modifying a web app, use playwright-cli to validate relevant user flows and report the results.
+- Open the app at its local URL (http://127.0.0.1:<port>/apps/<port>/ for the proxy base path). Local testing works even when APP_PORTS is empty. Close the browser session after validation, leaving the app running for the user.
 ` : '';
   const block = `<!-- codex-terminal:apps:start -->\n## Codex Terminal web app environment\n\nWhen creating or running web apps in this container, use these environment defaults unless the user or project instructions say otherwise.\n${routing}${browser}<!-- codex-terminal:apps:end -->\n`;
   const managed = /<!-- codex-terminal:apps:start -->[\s\S]*?<!-- codex-terminal:apps:end -->\n?/g;
