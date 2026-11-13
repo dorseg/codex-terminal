@@ -113,6 +113,8 @@ jobs:
           push: true
           pull: true
           no-cache-filters: remobi,herdr,browser
+          secrets: |
+            github_token=${{ secrets.GITHUB_TOKEN }}
           tags: |
             ${{ steps.image.outputs.name }}:${{ matrix.tag }}
           labels: |
