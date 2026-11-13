@@ -49,9 +49,10 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
 COPY scripts/configure-browser.mjs /tmp/configure-browser.mjs
 RUN npm install --global @playwright/cli@latest \
     && playwright-cli --version \
-    && playwright-cli install-browser chromium --with-deps --no-shell \
+    && NO_UPDATE_NOTIFIER=1 playwright-cli install-browser chromium --with-deps --no-shell \
     && node /tmp/configure-browser.mjs "$(npm root -g)/@playwright/cli" \
-    && chown -R node:node /home/node/.playwright \
+    && mkdir -p /home/node/.cache/ms-playwright \
+    && chown -R node:node /home/node/.playwright /home/node/.cache \
     && chmod -R a+rX /opt/playwright-browsers \
     && npm cache clean --force \
     && apt-get clean \
